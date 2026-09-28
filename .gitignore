@@ -1,0 +1,6 @@
+# Personal notes (health details) stay off the public repo
+SCOPE.md
+
+# Local tooling
+.claude/
+node_modules/
