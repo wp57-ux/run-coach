@@ -1,6 +1,6 @@
 // Offline support: the whole app is cached on first visit so it works at the
 // gym without signal. Bump VERSION whenever you publish changes.
-const VERSION = 'run-coach-v1';
+const VERSION = 'run-coach-v2';
 const FONT_CACHE = 'run-coach-fonts';
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40'];

@@ -9,7 +9,8 @@ export const DEFAULTS = {
   profile: { units: 'imperial', weight: null },
   treadmill: { walkSpeed: 3.1, runSpeed: 4.6, incline: 1 },
   audio: { voice: true, beeps: true, vibrate: true, updates: true, volume: 0.8, style: 'duck' },
-  metronome: { on: false, bpm: 165, volume: 0.4 },
+  // natural = measured steps/min; scope = 'first' run block only, or 'all'
+  metronome: { on: false, bpm: 160, volume: 0.4, natural: null, scope: 'first' },
   startStage: 1,
   sessions: [],
   overrides: [],

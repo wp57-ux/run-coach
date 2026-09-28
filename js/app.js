@@ -26,7 +26,6 @@ let hurt = null;      // "something hurts" sheet state
 let installEvt = null;
 let wakeLock = null;
 let chartMetric = 'kcal';
-let taps = [], tapSpm = null;
 const audio = new AudioCoach(() => state);
 
 // ---- helpers ---------------------------------------------------------------
@@ -426,21 +425,38 @@ function settingsHTML() {
     </section>
 
     <section class="group"><h2>Cadence metronome</h2>
-      <p class="note">Slightly quicker, shorter steps take load off knees and hips. Measure your natural rhythm, then set the tick about 5% faster. It only plays during run blocks.</p>
+      <p class="note">Slightly quicker, shorter steps take load off knees and hips. First find your natural rhythm, then set the tick about 5% faster.</p>
+
+      <div class="howto">
+        <span class="eyebrow">Find your natural rhythm</span>
+        <ol>
+          <li>Leave the metronome <b>off</b> and do a normal run.</li>
+          <li>In any run block, when the big clock reads <b>2:00</b>, start counting every time your <b>right foot</b> lands. Stop when it reads <b>1:30</b>. That’s 30 seconds.</li>
+          <li>Run as you normally would while you count. Don’t speed up your feet.</li>
+          <li>After the run, type the number in below.</li>
+        </ol>
+      </div>
+      <label class="field"><span>Right-foot landings in 30 seconds</span>
+        <div class="inp"><input id="footCount" type="number" inputmode="numeric" min="25" max="55" step="1" placeholder="e.g. 38" value="${m.natural ? Math.round(m.natural / 4) : ''}"><em>landings</em></div></label>
+      <div class="count-read" id="countRead">${countReadHTML(m.natural)}</div>
+
       ${toggleHTML('metronome.on', 'Metronome during runs')}
+      <div class="field"><span>Plays during</span>
+        <div class="seg">
+          <button data-act="set" data-path="metronome.scope" data-v="first" aria-pressed="${m.scope === 'first'}">First run block</button>
+          <button data-act="set" data-path="metronome.scope" data-v="all" aria-pressed="${m.scope === 'all'}">Every run block</button>
+        </div>
+        <small>Start with the first block for a week or two. Once the rhythm feels natural, switch to every block.</small>
+      </div>
       <div class="bpm">
         <button class="btn round" data-act="bpm" data-d="-1" aria-label="Slower">−</button>
-        <div><b id="bpmVal">${m.bpm}</b><small>steps / min</small></div>
+        <div><b id="bpmVal">${m.bpm}</b><small>steps / min</small><em id="bpmRel">${bpmRelHTML()}</em></div>
         <button class="btn round" data-act="bpm" data-d="1" aria-label="Faster">+</button>
       </div>
-      <div class="tapper">
-        <button class="tap" data-act="tap"><b>Tap</b><small>with each footstep while you run</small></button>
-        <div class="tap-read"><span id="tapOut">${tapSpm ? `${tapSpm} steps/min` : 'Not measured'}</span>
-          <button class="btn" data-act="tap-use" id="tapUse" ${tapSpm ? '' : 'disabled'}>${tapSpm ? `Use +5% (${Math.round(tapSpm * 1.05)})` : 'Use +5%'}</button></div>
-      </div>
-      <label class="field" style="margin-top:14px"><span>Metronome volume <output id="mvolOut">${Math.round(m.volume * 100)}%</output></span>
+      <label class="field"><span>Metronome volume <output id="mvolOut">${Math.round(m.volume * 100)}%</output></span>
         <input type="range" min="0" max="100" step="5" value="${Math.round(m.volume * 100)}" data-bind="metronome.volume" data-scale="100" data-out="mvolOut"></label>
       <button class="btn wide" data-act="test-metro">▶&nbsp; Test metronome</button>
+      <p class="note" style="margin-top:14px">Match your steps to the tick by making each step a little shorter. Let your foot land the way it normally does. Deliberately running on your toes strains the calves and Achilles. Stay within 10% of your natural rhythm.</p>
     </section>
 
     <section class="group"><h2>Plan</h2>
@@ -606,11 +622,14 @@ function onCue(c) {
 }
 
 function syncMetro() {
-  const on = !!wk && state.metronome.on && !wk.w.paused && wk.w.running && wk.segs[wk.w.idx]?.type === 'run';
-  if (on) audio.metroStart(state.metronome.bpm);
+  const m = state.metronome;
+  const idx = wk?.w.idx;
+  const inScope = m.scope === 'all' || idx === wk?.segs.findIndex(s => s.type === 'run');
+  const on = !!wk && m.on && inScope && !wk.w.paused && wk.w.running && wk.segs[idx]?.type === 'run';
+  if (on) audio.metroStart(m.bpm);
   else audio.metroStop();
-  const m = $('#wkMetro');
-  if (m) m.textContent = on ? `♩ ${state.metronome.bpm}` : '';
+  const label = $('#wkMetro');
+  if (label) label.textContent = on ? `♩ ${m.bpm}` : '';
 }
 
 async function requestWakeLock() {
@@ -803,6 +822,25 @@ function celebrate(stage) {
 }
 
 // ---- settings helpers ------------------------------------------------------
+
+// Right-foot landings in 30 s × 4 = total steps per minute.
+function countReadHTML(natural) {
+  if (!natural) return '<p class="note">Enter your count to get your target rhythm.</p>';
+  const target = Math.min(200, Math.max(120, Math.round(natural * 1.05)));
+  return `<div class="cr-row">
+      <div><small>Natural</small><b>${natural}</b></div>
+      <div><small>Target +5%</small><b>${target}</b></div>
+      <button class="btn primary" data-act="count-use" data-n="${natural}">Use ${target}</button>
+    </div>`;
+}
+
+function bpmRelHTML() {
+  const { bpm, natural } = state.metronome;
+  if (!natural) return '';
+  const pct = Math.round((bpm / natural - 1) * 100);
+  const txt = `${pct >= 0 ? '+' : ''}${pct}% vs your natural ${natural}`;
+  return pct > 10 ? `<span class="warn">${txt}. That’s too big a jump.</span>` : txt;
+}
 
 function setUnits(u) {
   if (u === units()) return;
@@ -1073,33 +1111,18 @@ const actions = {
     const m = state.metronome;
     m.bpm = Math.min(200, Math.max(120, m.bpm + Number(el.dataset.d)));
     $('#bpmVal').textContent = m.bpm;
+    $('#bpmRel').innerHTML = bpmRelHTML();
     persist();
   },
 
-  tap() {
-    const now = performance.now();
-    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
-    taps.push(now);
-    if (taps.length > 24) taps.shift();
-    if (navigator.vibrate) navigator.vibrate(8);
-    const out = $('#tapOut'), use = $('#tapUse');
-    if (taps.length < 8) {
-      out.textContent = `${taps.length} taps… keep going`;
-      return;
-    }
-    const iv = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
-    tapSpm = Math.round(60000 / iv[Math.floor(iv.length / 2)]);
-    out.textContent = `${tapSpm} steps/min`;
-    use.disabled = false;
-    use.textContent = `Use +5% (${Math.round(tapSpm * 1.05)})`;
-  },
-
-  'tap-use'() {
-    if (!tapSpm) return;
-    state.metronome.bpm = Math.min(200, Math.max(120, Math.round(tapSpm * 1.05)));
-    $('#bpmVal').textContent = state.metronome.bpm;
+  'count-use'(el) {
+    const m = state.metronome;
+    m.natural = Number(el.dataset.n);
+    m.bpm = Math.min(200, Math.max(120, Math.round(m.natural * 1.05)));
     persist();
-    toast(`Metronome set to ${state.metronome.bpm}`);
+    $('#bpmVal').textContent = m.bpm;
+    $('#bpmRel').innerHTML = bpmRelHTML();
+    toast(`Metronome set to <b>${m.bpm}</b>. Turn it on when you’re ready.`);
   },
 
   async 'test-sound'() {
@@ -1180,6 +1203,14 @@ document.addEventListener('change', e => {
 document.addEventListener('input', e => {
   const el = e.target;
   if (el.type === 'range' && el.dataset.bind) return commitBind(el, false);
+  if (el.id === 'footCount') {
+    const n = Math.round(Number(el.value));
+    const ok = el.value !== '' && n >= 25 && n <= 55;
+    el.classList.toggle('bad', el.value !== '' && !ok);
+    $('#countRead').innerHTML = ok ? countReadHTML(n * 4)
+      : el.value === '' ? countReadHTML(null) : '<p class="note warn">That’s outside the usual 25–55 range. Try counting again.</p>';
+    return;
+  }
   if (draft && ['ciWalk', 'ciRun', 'ciInc'].includes(el.id)) {
     const sp = { walkSpeed: +$('#ciWalk').value || 0, runSpeed: +$('#ciRun').value || 0, incline: +$('#ciInc').value || 0 };
     const t = sessionTotals(draft, sp, draft.weight, draft.units);

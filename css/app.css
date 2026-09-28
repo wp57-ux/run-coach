@@ -296,15 +296,20 @@ output { font-family: var(--display); font-weight: 800; font-size: 17px; color: 
 .bpm { display: flex; align-items: center; justify-content: space-between; margin: 16px 0; }
 .bpm div { text-align: center; }
 .bpm b { display: block; font-family: var(--display); font-weight: 900; font-size: 60px; line-height: 1; }
-.bpm small { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
-.tapper { display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; }
-.tap { min-height: 100px; border-radius: 14px; background: var(--panel-2); border: 1px dashed var(--line-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
-.tap b { font-family: var(--display); font-weight: 900; font-size: 32px; text-transform: uppercase; }
-.tap small { font-size: 11.5px; color: var(--ink-3); padding: 0 10px; text-align: center; }
-.tap:active { background: var(--run); color: var(--run-ink); }
-.tap:active small { color: var(--run-ink); }
-.tap-read { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-#tapOut { font-family: var(--display); font-weight: 800; font-size: 21px; }
+.bpm small { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.bpm em { display: block; min-height: 18px; margin-top: 4px; font-style: normal; font-size: 12.5px; color: var(--ink-2); }
+.bpm em .warn { color: var(--amber); }
+
+.howto { margin-bottom: 16px; padding: 14px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--run); }
+.howto ol { margin: 8px 0 0; padding-left: 20px; font-size: 14px; color: var(--ink-2); }
+.howto li { margin-bottom: 6px; padding-left: 2px; }
+.howto li::marker { font-family: var(--display); font-weight: 800; color: var(--run); }
+.howto b { color: var(--ink); }
+.count-read { margin: -2px 0 8px; }
+.cr-row { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px; padding: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.cr-row small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.cr-row b { font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; }
+.cr-row .btn { justify-self: end; }
 
 .foot { margin-top: 10px; font-size: 12px; color: var(--ink-3); text-align: center; }
 
