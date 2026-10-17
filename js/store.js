@@ -2,6 +2,7 @@
 
 const KEY = 'runcoach.v1';
 const ACTIVE = 'runcoach.active';
+const LIFT = 'runcoach.lift';
 
 export const DEFAULTS = {
   version: 1,
@@ -14,6 +15,11 @@ export const DEFAULTS = {
   startStage: 1,
   sessions: [],
   overrides: [],
+  // strength: next = a day you picked by hand; swaps = your exercise swaps;
+  // notes = machine notes; phase2 = null (not offered yet), true or false
+  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 75 },
+  lifts: [],
+  planks: [],
 };
 
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -50,6 +56,7 @@ export function wipe() {
   try {
     localStorage.removeItem(KEY);
     localStorage.removeItem(ACTIVE);
+    localStorage.removeItem(LIFT);
   } catch {}
 }
 
@@ -70,6 +77,24 @@ export function loadActive() {
 
 export function clearActive() {
   try { localStorage.removeItem(ACTIVE); } catch {}
+}
+
+// A lift in progress, saved after every set.
+export function saveLift(snap) {
+  try { localStorage.setItem(LIFT, JSON.stringify({ ...snap, savedAt: Date.now() })); } catch {}
+}
+
+export function loadLift() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LIFT) || 'null');
+    if (s && Date.now() - s.savedAt < 12 * 3600e3) return s;
+    if (s) localStorage.removeItem(LIFT);
+  } catch {}
+  return null;
+}
+
+export function clearLift() {
+  try { localStorage.removeItem(LIFT); } catch {}
 }
 
 export function toBackup(state) {

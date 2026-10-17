@@ -26,6 +26,11 @@ export const CLIPS = {
   m30: 'Thirty minutes.',
   m35: 'Thirty-five minutes.',
   m40: 'Forty minutes.',
+  hold: 'Hold.',
+  relax: 'Relax.',
+  switch: 'Switch sides.',
+  next: 'Next exercise.',
+  restover: 'Rest over. Next set.',
 };
 
 const RATE = 22050;

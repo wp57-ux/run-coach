@@ -1,8 +1,9 @@
 # Records the voice cues with a built-in Windows voice.
 # Run from the project folder:  powershell -ExecutionPolicy Bypass -File tools\make-audio.ps1
 # Keep the phrases in sync with CLIPS in js/audio.js.
+# Only record some:  ... -File tools\make-audio.ps1 -Only hold,relax
 
-param([string]$Voice = 'Microsoft Zira Desktop', [int]$Rate = 0)
+param([string]$Voice = 'Microsoft Zira Desktop', [int]$Rate = 0, [string[]]$Only = @())
 
 Add-Type -AssemblyName System.Speech
 
@@ -29,6 +30,11 @@ $clips = [ordered]@{
   m30       = 'Thirty minutes.'
   m35       = 'Thirty-five minutes.'
   m40       = 'Forty minutes.'
+  hold      = 'Hold.'
+  relax     = 'Relax.'
+  switch    = 'Switch sides.'
+  next      = 'Next exercise.'
+  restover  = 'Rest over. Next set.'
 }
 
 $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -37,7 +43,9 @@ $synth.Rate = $Rate
 $synth.Volume = 100
 $format = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(22050, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
 
-foreach ($name in $clips.Keys) {
+$Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$names = @($clips.Keys | Where-Object { $Only.Count -eq 0 -or $Only -contains $_ })
+foreach ($name in $names) {
   $path = Join-Path $out "$name.wav"
   $synth.SetOutputToWaveFile($path, $format)
   $synth.Speak($clips[$name])
@@ -47,4 +55,4 @@ foreach ($name in $clips.Keys) {
 $synth.Dispose()
 
 # Trim the silence Windows pads around each clip.
-node (Join-Path $PSScriptRoot 'trim-audio.mjs')
+node (Join-Path $PSScriptRoot 'trim-audio.mjs') @names

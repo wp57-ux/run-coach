@@ -6,6 +6,12 @@ import {
 import { planTotals, sessionTotals } from './calories.js';
 import { AudioCoach } from './audio.js';
 import { Workout } from './workout.js';
+import { EX, BLOCK_LABEL } from './lift-data.js';
+import * as Lift from './lift.js';
+import { Guide } from './guide.js';
+
+// The drawings are nice to have: if they ever fail to load, the app still works.
+const { figure } = await import('./drawings.js').catch(() => ({ figure: () => '' }));
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -231,6 +237,8 @@ function todayHTML() {
   const pending = state.sessions.find(needsMorning);
   const rest = restInfo(prog, now);
   const active = store.loadActive();
+  const lst = liftCtx(now);
+  const lpending = state.lifts.find(s => Lift.liftNeedsMorning(s) && daysBetween(s.at, now) >= 1);
   const cards = [];
   let block = '';
 
@@ -249,6 +257,16 @@ function todayHTML() {
       block ||= 'Your next run unlocks after tomorrow morning’s check-in.';
       cards.push(card('info', 'Check in tomorrow morning', 'Open the app tomorrow and say how your body feels. That decides whether today counts as green.'));
     }
+  }
+  if (lpending) {
+    block ||= 'Answer the back check first.';
+    cards.push(backMorningHTML(lpending, daysBetween(lpending.at, now)));
+  }
+  if (lst.reds >= 2) cards.push(card('red', 'Two red back days in a row', 'Worth getting your back looked at by a physio. Lifts stay on reset days until your back check-ins settle.'));
+  if (lst.painful >= 2) cards.push(card('red', 'Shoulders painful twice in a row', 'Worth getting your shoulders looked at by a physio. Presses and raises stay on the gentlest options for now.'));
+  if (lst.phase2Ready) {
+    cards.push(card('green', 'Phase 2 unlocked', 'Six weeks without a red back day. Ready for three upgrades: dumbbell Romanian deadlift, Bulgarian split squat and the 45° back extension? You can turn them off any time in Settings.',
+      '<button class="btn primary" data-act="p2" data-v="1">Add them</button><button class="btn ghost" data-act="p2" data-v="0">Not now</button>'));
   }
   if (prog.goal) cards.push(card('green', '5K. Done.', 'Two green 5Ks in a row. Keep running stage 12 two or three times a week to hold onto it.'));
   if (prog.reds >= 2) cards.push(card('red', 'Two red days in a row', 'Worth getting this looked at by a physio before you push on. The plan keeps you at an easier stage in the meantime.'));
@@ -282,9 +300,10 @@ function todayHTML() {
       ${streakHTML(prog)}
       <p class="hint">Treadmill: walk <b>${state.treadmill.walkSpeed} ${spUnit()}</b> · run <b>${state.treadmill.runSpeed} ${spUnit()}</b> · incline <b>${state.treadmill.incline}%</b>. Run at an easy pace: you should be able to talk in full sentences.</p>
     </section>
+    ${safeHTML(() => liftCardHTML(lst, block))}
     <div class="startbar">
       ${block ? `<p class="blocked">${block}</p>` : ''}
-      <button class="start" data-act="start" ${block ? 'disabled' : ''}><span>Start</span><small>Stage ${prog.stage} · ${Math.round(plan.totalSec / 60)} min</small></button>
+      <button class="start" data-act="start" ${block ? 'disabled' : ''}><span>Start</span><small>Stage ${prog.stage} · ${Math.round(plan.totalSec / 60)} min${lst.liftedToday ? '' : ` + Day ${lst.day}`}</small></button>
     </div>`;
 }
 
@@ -312,11 +331,14 @@ function progressHTML() {
   for (let i = 7; i >= 0; i--) {
     const s = new Date(ws); s.setDate(s.getDate() - 7 * i);
     const e = new Date(s); e.setDate(e.getDate() + 7);
-    const inWeek = list.filter(x => { const t = Date.parse(x.at); return t >= s.getTime() && t < e.getTime(); });
-    weeks.push({ start: s.getTime(), ...sumOf(inWeek) });
+    const within = x => { const t = Date.parse(x.at); return t >= s.getTime() && t < e.getTime(); };
+    const runs = sumOf(list.filter(within));
+    const lw = state.lifts.filter(within);
+    weeks.push({ start: s.getTime(), ...runs, lifts: lw.length, kcal: runs.kcal + lw.reduce((a, x) => a + (x.kcal || 0), 0) });
   }
   const cur = weeks[weeks.length - 1];
   const all = sumOf(list);
+  const liftKcalAll = state.lifts.reduce((a, x) => a + (x.kcal || 0), 0);
   const val = w => (chartMetric === 'kcal' ? w.kcal : Math.round(w.run / 60));
   const max = Math.max(1, ...weeks.map(val));
   const bars = weeks.map((w, i) => {
@@ -357,7 +379,7 @@ function progressHTML() {
     <section class="group"><h2>This week</h2>
       <dl class="stats">
         <div><dt>Runs</dt><dd>${cur.n}</dd></div>
-        <div><dt>Running</dt><dd>${Math.round(cur.run / 60)}<small>min</small></dd></div>
+        <div><dt>Lifts</dt><dd>${cur.lifts}</dd></div>
         <div><dt>Distance</dt><dd>${distVal(cur.km).toFixed(1)}<small>${dUnit()}</small></dd></div>
         <div><dt>Burn</dt><dd>${cur.kcal}<small>kcal</small></dd></div>
       </dl>
@@ -372,11 +394,12 @@ function progressHTML() {
       <div class="chart">${bars}</div>
     </section>
     <section class="group"><h2>All time</h2>
-      <p class="alltime"><b>${all.n}</b> ${all.n === 1 ? 'run' : 'runs'} ·<b>${Math.round(all.run / 60)}</b> min running · <b>${distVal(all.km).toFixed(1)}</b> ${dUnit()} · <b>${all.kcal.toLocaleString()}</b> kcal</p>
+      <p class="alltime"><b>${all.n}</b> ${all.n === 1 ? 'run' : 'runs'} · <b>${state.lifts.length}</b> ${state.lifts.length === 1 ? 'lift' : 'lifts'} · <b>${Math.round(all.run / 60)}</b> min running · <b>${distVal(all.km).toFixed(1)}</b> ${dUnit()} · <b>${(all.kcal + liftKcalAll).toLocaleString()}</b> kcal</p>
     </section>
-    <section class="group"><h2>History</h2>
+    <section class="group"><h2>Run history</h2>
       ${rows || '<p class="note">No runs yet. Your first one will show up here.</p>'}
     </section>
+    ${safeHTML(strengthHTML)}
     <section class="group"><h2>The plan</h2>
       <p class="note">Every run starts with a 5-minute brisk walk. You move up after 2 green runs in a row, repeat on amber, and drop back one on red.</p>
       <ol class="planlist">${planRows}</ol>
@@ -459,6 +482,18 @@ function settingsHTML() {
       <p class="note" style="margin-top:14px">Match your steps to the tick by making each step a little shorter. Let your foot land the way it normally does. Deliberately running on your toes strains the calves and Achilles. Stay within 10% of your natural rhythm.</p>
     </section>
 
+    <section class="group"><h2>Lifting</h2>
+      <div class="field"><span>Next lift day</span>
+        <div class="seg">${Lift.ORDER.map(d => `<button data-act="lift-day" data-v="${d}" aria-pressed="${d === liftCtx().day}">Day ${d}</button>`).join('')}</div>
+        <small>Normally automatic: A → B → C, picking up where you left off.</small></div>
+      <div class="field"><span>Rest between rounds</span>
+        <div class="seg">${[60, 75, 90].map(v => `<button data-act="set-num" data-path="lift.rest" data-v="${v}" aria-pressed="${state.lift.rest === v}">${v} s</button>`).join('')}</div>
+        <small>For the supersets. Finishers always rest 45 s.</small></div>
+      ${state.lift.phase2 !== null ? toggleHTML('lift.phase2', 'Phase 2 exercises', 'Romanian deadlift, Bulgarian split squat, 45° back extension') : ''}
+      ${Object.keys(state.lift.swaps).length ? `<button class="btn wide" data-act="swaps-reset">Undo my exercise swaps (${Object.keys(state.lift.swaps).length})</button>` : ''}
+      <button class="btn wide" data-act="plank-redo">${state.lift.plankDue ? 'Side plank test is due next lift' : 'Side plank test next lift'}</button>
+    </section>
+
     <section class="group"><h2>Plan</h2>
       <label class="field"><span>Current stage</span>
         <select id="stageSel">${STAGES.map(s => `<option value="${s.n}" ${s.n === prog.stage ? 'selected' : ''}>Stage ${s.n}: ${esc(s.name)}</option>`).join('')}</select>
@@ -466,7 +501,7 @@ function settingsHTML() {
     </section>
 
     <section class="group"><h2>Your data</h2>
-      <p class="note">Your runs are stored only on this phone. Export a backup now and then, because clearing Chrome’s data would wipe them.</p>
+      <p class="note">Your runs and lifts are stored only on this phone. Export a backup now and then, because clearing Chrome’s data would wipe them.</p>
       <div class="row"><button class="btn" data-act="export">Export backup</button><button class="btn" data-act="import">Import backup</button></div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <button class="btn danger wide" data-act="reset">Erase everything</button>
@@ -797,7 +832,7 @@ function resultHTML(s, before) {
       <div><dt>Burn</dt><dd>${s.kcal}<small>kcal</small></dd></div>
       <div><dt>Pain</dt><dd>${s.pain}<small>/10</small></dd></div>
     </dl>
-    <button class="start inline" data-act="result-done"><span>Done</span></button>
+    ${afterRunHTML()}
   </div>`;
 }
 
@@ -819,6 +854,625 @@ function celebrate(stage) {
     </div>`);
   }
   audio.vibrate([120, 80, 120, 80, 300]);
+}
+
+// ---- strength ----------------------------------------------------------------
+
+const LEG_PAIN = ['Knee', 'Shin', 'Calf / Achilles', 'Hip'];
+const STEP_LABEL = { ready: 'Get ready', hold: 'Hold', relax: 'Relax', rest: 'Rest', stretch: 'Stretch', manual: 'Your pace', test: 'As long as you can', warm: 'Warm up' };
+const SIDE_LABEL = { left: 'Left side', right: 'Right side' };
+const SHOULDER_TEXT = { fine: 'fine', sore: 'a bit sore', painful: 'painful' };
+const MORNING_TEXT = { same: 'same or better', slightly: 'a bit worse', clearly: 'clearly worse' };
+
+let ls = null;         // lift session in progress, or a stretch-only routine
+let guide = null;      // primer / stretch step timer
+let restT = null;      // rest between rounds
+let lsTimer = null;
+let tw = null;         // "something's tweaking" sheet state
+
+const exName = id => EX[id]?.name ?? id;
+const isLevel = id => EX[id].kind === 'level';
+const fmtW = (id, w) => (w === null || w === undefined ? '?' : isLevel(id) ? `notch ${w}` : `${w} ${wUnit()}`);
+const fmtSet = (id, s) => (EX[id].kind === 'reps' ? `${s.reps}` : EX[id].kind === 'carry' ? fmtW(id, s.w) : isLevel(id) ? `${s.reps} @ notch ${s.w}` : `${s.w} × ${s.reps}`);
+const runMinutes = stage => Math.round(planTotals(buildSegments(stage, state.treadmill, units())).totalSec / 60);
+const sortedRuns = () => [...state.sessions].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+const activeItems = b => b.items.filter(i => !ls.skipped.includes(i.ex));
+const blockPos = (b, k) => `${b.key}${k + 1}`;
+
+function liftCtx(now = Date.now()) {
+  const st = Lift.liftStatus(state, now);
+  const r = sortedRuns().at(-1);
+  st.legsRest = !!r && finalColor(r) === 'red' && (r.where || []).some(w => LEG_PAIN.includes(w));
+  return st;
+}
+
+function liftPlanFor(st, withRun) {
+  const trim = withRun && runMinutes(progression(state).stage) > 35;
+  return { trim, plan: Lift.buildLift(state, st, { trim, noLegs: st.legsRest }) };
+}
+
+function backMorningHTML(s, ago) {
+  return `<div class="card morning">
+    <span class="eyebrow">Back check</span>
+    <h3>How’s your back this morning?</h3>
+    <p>Compared with before your lift ${ago === 1 ? 'yesterday' : 'on ' + fmtDay(s.at)}.</p>
+    <div class="choices">
+      <button class="choice green" data-act="lmorning" data-v="same"><b>Same or better</b><small>Usual stiffness</small></button>
+      <button class="choice amber" data-act="lmorning" data-v="slightly"><b>Stiffer</b><small>Tighter than usual</small></button>
+      <button class="choice red" data-act="lmorning" data-v="clearly"><b>Sore</b><small>Clearly worse</small></button>
+    </div>
+  </div>`;
+}
+
+// A bug in the lift card must never take the run screen down with it.
+function safeHTML(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    console.error(e);
+    return card('red', 'Lift card error', 'Something went wrong showing today’s lift. Your runs are unaffected.');
+  }
+}
+
+function liftCardHTML(st, block) {
+  const saved = store.loadLift();
+  if (saved) {
+    return card('amber', 'Unfinished lift', `Day ${saved.day} from ${fmtTime(saved.startedAt)}. Pick up where you left off, or check in with what you did.`,
+      `<button class="btn primary" data-act="lift-resume">Resume</button><button class="btn" data-act="lift-recover-ci">Check in</button><button class="btn ghost" data-act="lift-drop">Discard</button>`);
+  }
+  if (st.liftedToday) {
+    const c = Lift.liftFinal(st.last);
+    return `<section class="lift-card done"><span class="eyebrow">Lift · Day ${st.last.day}</span><h2>Done today</h2>
+      <p>${(st.last.sets || []).length} sets · back ${st.last.back}/10${c === 'pending' ? ' · back check tomorrow morning' : ` · ${c}`}</p></section>`;
+  }
+  const { trim, plan } = liftPlanFor(st, true);
+  const rows = plan.blocks.map(b => `<li class="${b.optional ? 'opt' : ''}"><span class="lk">${b.key === 'F' ? 'Fin' : b.key === 'X' ? '+' : b.key}</span><span>${b.items.map(i => esc(exName(i.ex))).join(' <i>+</i> ')}</span><em>${b.optional ? 'optional' : `${b.sets} sets`}</em></li>`).join('');
+  const notes = [];
+  if (st.reset) notes.push('<b class="r">Back reset day.</b> The primer plus seated, back-supported machines only.');
+  else if (st.amber) notes.push('<b class="a">Amber back.</b> No weight increases on lifts that load your back.');
+  if (st.shoulders === 'painful') notes.push('<b class="r">Shoulders painful.</b> Presses and raises swapped for the gentlest options.');
+  else if (st.shoulders === 'sore') notes.push('<b class="a">Shoulders a bit sore.</b> No weight increases on presses and raises.');
+  if (st.legsRest) notes.push('<b class="a">Legs resting</b> after your red run. Upper body only.');
+  if (st.plankDue) notes.push('<b>Side plank test</b> in today’s primer.');
+  const setup = plan.blocks.flatMap(b => b.items).filter(i => Lift.target(state, i.ex, st).setup).length;
+  if (setup) notes.push(`<b>Setup:</b> you’ll pick starting weights for ${setup} exercise${setup > 1 ? 's' : ''}.`);
+  if (st.early) notes.push('First 2 weeks: finish every set with about 3 reps left in the tank.');
+  if (trim) notes.push('Long run today, so the lift is trimmed to about 20 min.');
+  const days = Lift.ORDER.map(d => `<button data-act="lift-day" data-v="${d}" aria-pressed="${d === st.day}">${d}</button>`).join('');
+  return `<section class="lift-card">
+    <div class="hero-top"><span class="eyebrow">Lift · Day ${st.day}</span><div class="daypick" role="group" aria-label="Lift day">${days}</div></div>
+    <ol class="lift-list">${rows}</ol>
+    <p class="lift-meta">Primer ≈ 8 min · lift ≈ ${Lift.liftMinutes(plan)} min · stretch ≈ 6 min</p>
+    ${notes.length ? `<ul class="lift-notes">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}
+    <div class="lift-only"><button class="btn" data-act="lift-only" ${block ? 'disabled' : ''}>Lift only</button><small>Starts with 5 min on the bike. Has leg work, so leave 48 h before your next run.</small></div>
+  </section>`;
+}
+
+function afterRunHTML() {
+  const st = liftCtx();
+  if (st.liftedToday || store.loadLift()) return '<button class="start inline" data-act="result-done"><span>Done</span></button>';
+  return `<button class="start inline lift-go" data-act="lift-go"><span>Lift</span><small>Day ${st.day} · primer, lift, stretch</small></button>
+    <div class="row after-run"><button class="btn" data-act="run-stretch">Stretch · 4 min</button><button class="btn ghost" data-act="result-done">Done for today</button></div>`;
+}
+
+// -- session ---------------------------------------------------------------------
+
+function saveLs() {
+  if (ls && ls.kind !== 'stretch') store.saveLift(ls);
+}
+
+function startLsLoop() {
+  clearInterval(lsTimer);
+  lsTimer = setInterval(lsLoop, 200);
+}
+
+function stopLsLoop() {
+  clearInterval(lsTimer);
+  lsTimer = null;
+}
+
+function lsLoop() {
+  if (!ls) return stopLsLoop();
+  const el = $('#lsEl');
+  if (el) el.textContent = fmtElapsed(Date.now() - ls.startedAt);
+  if (guide) {
+    guide.tick();
+    const c = guide && $('#gdClock');
+    if (c) c.textContent = clockText();
+  }
+  if (restT) restTick();
+}
+
+function startLift(withRun) {
+  const st = liftCtx();
+  const { trim, plan } = liftPlanFor(st, withRun);
+  if (!plan.blocks.length) return toast('Nothing safe to lift today. Rest up.');
+  const targets = {};
+  for (const b of plan.blocks) for (const i of b.items) targets[i.ex] = Lift.target(state, i.ex, st);
+  ls = {
+    id: uid(), day: plan.day, withRun, warm: !withRun, startedAt: Date.now(), plan, trim, noLegs: !!st.legsRest, reset: st.reset,
+    st: { backColor: st.backColor, shoulders: st.shoulders }, early: st.early,
+    phase: 'primer', ptr: { b: 0, r: 0, k: 0 }, sets: [], skipped: [], setupList: [], tweak: null,
+    primer: false, cooldown: false, test: st.plankDue ? {} : null, weak: st.weak, targets, next: {}, cur: null, ci: null,
+  };
+  history.pushState({ ls: 1 }, '');
+  requestWakeLock();
+  startLsLoop();
+  startGuide('primer');
+}
+
+function startGuide(phase) {
+  const steps = phase === 'primer' ? Lift.primerSteps({ weak: ls.weak, test: !!ls.test, warm: ls.warm })
+    : ls.kind === 'stretch' ? Lift.runStretchSteps() : Lift.dayStretchSteps(ls.day, ls.weak);
+  ls.phase = phase;
+  restT = null;
+  guide = new Guide(steps, { scale: TIME_SCALE });
+  guide.on('step', st => {
+    if (st.voice) audio.say(st.voice);
+    if (['hold', 'stretch', 'warm'].includes(st.kind)) audio.vibrate([180]);
+    showScreen(guideHTML());
+  });
+  guide.on('beep', () => audio.countdown());
+  guide.on('cap', st => finishTest(st.side));
+  guide.on('done', () => phaseDone(phase));
+  saveLs();
+  guide.start();
+}
+
+function phaseDone(phase) {
+  guide = null;
+  if (ls.kind === 'stretch') return finishRunStretch();
+  if (phase === 'primer') {
+    ls.primer = true;
+    ls.phase = 'lift';
+    saveLs();
+    return showLift();
+  }
+  ls.cooldown = true;
+  toCheckin();
+}
+
+function finishTest(side) {
+  if (guide?.step?.kind !== 'test') return;
+  ls.test[side] = Math.max(1, Math.round(guide.up / 1000));
+  audio.vibrate([300]);
+  if (ls.test.left && ls.test.right) {
+    state.planks.push({ at: new Date().toISOString(), left: ls.test.left, right: ls.test.right });
+    state.lift.plankDue = false;
+    persist();
+    ls.weak = Lift.weakSide(state);
+    toast(`Left ${ls.test.left} s · right ${ls.test.right} s · gap ${Lift.plankGap(state.planks.at(-1))}%`, 4500);
+  }
+  guide.next();
+}
+
+function finishRunStretch() {
+  guide = null;
+  stopLsLoop();
+  releaseWakeLock();
+  ls = null;
+  hideScreen();
+  view = 'today';
+  render();
+  toast('Stretched. Nice work.');
+}
+
+function clockText() {
+  const st = guide?.step;
+  if (!st || st.kind === 'manual') return '';
+  return st.kind === 'test' ? fmtElapsed(guide.up) : fmtClock(guide.left);
+}
+
+const lsTopHTML = title => `<header class="ls-top">
+    <div class="wk-id"><b>${esc(title)}</b><span id="lsEl">${fmtElapsed(Date.now() - ls.startedAt)}</span></div>
+    ${TIME_SCALE > 1 ? `<span class="wk-fast">×${TIME_SCALE} test</span>` : ''}
+    <button class="wk-end" data-act="ls-end">${ls.kind === 'stretch' ? 'Stop' : 'End'}</button>
+  </header>`;
+
+function guideHTML() {
+  const st = guide.step;
+  const info = Lift.stepInfo(st);
+  const title = ls.phase === 'primer' ? (st.kind === 'warm' ? 'Warm-up' : 'Primer') : 'Stretch';
+  const ctrl = st.kind === 'test' ? '<button class="wk-btn main" data-act="gd-stop">Stop</button>'
+    : st.kind === 'manual' ? '<button class="wk-btn main" data-act="gd-next">Done ✓</button>'
+    : `<button class="wk-btn" data-act="gd-pause" id="gdPause">${guide.paused ? 'Resume' : 'Pause'}</button><button class="wk-btn" data-act="gd-next">Next ›</button>`;
+  return `<div class="ls gd k-${st.kind}${guide.paused ? ' paused' : ''}">
+    ${lsTopHTML(title)}
+    <div class="gd-bar"><i style="width:${Math.round(guide.i / guide.steps.length * 100)}%"></i></div>
+    <div class="gd-main">
+      ${info.fig ? `<div class="gd-fig">${figure(info.fig)}</div>` : ''}
+      <span class="eyebrow">${esc(st.side ? SIDE_LABEL[st.side] : st.kind === 'test' ? 'Side plank test' : title)}</span>
+      <h1>${esc(info.name)}</h1>
+      <div class="gd-row"><span class="gd-state">${STEP_LABEL[st.kind]}</span><span class="gd-clock" id="gdClock">${clockText()}</span></div>
+      ${st.label ? `<p class="gd-label">${esc(st.label)}</p>` : ''}
+      ${st.kind === 'test' ? '<p class="gd-label">Stop when your form starts to slip, or at any back discomfort. Caps at 90 s.</p>' : ''}
+      <p class="gd-cue">${esc(info.cue)}</p>
+      <p class="why"><b>Why it’s good for you:</b> ${esc(info.why)}</p>
+    </div>
+    <div class="ls-ctrl">${ctrl}</div>
+    <button class="ls-skip" data-act="ls-skip-part">Skip ${ls.phase === 'primer' ? 'the primer' : 'the stretches'} ›</button>
+  </div>`;
+}
+
+// -- lifting ---------------------------------------------------------------------
+
+function curItem() {
+  const b = ls.plan.blocks[ls.ptr.b];
+  const items = activeItems(b);
+  return { b, items, item: items[ls.ptr.k] };
+}
+
+function setDefaults(ex) {
+  const t = ls.targets[ex] || {};
+  const nx = ls.next[ex];
+  const last = t.last?.[ls.ptr.r] || t.last?.at(-1);
+  const w = EX[ex].kind === 'reps' ? null : nx?.w ?? t.w ?? null;
+  let reps = nx?.reps ?? (t.setup ? 10 : t.change === 'same' && last ? last.reps : EX[ex].reps[0]);
+  if (EX[ex].kind === 'carry') reps = 1;
+  return { w, reps };
+}
+
+function syncCur() {
+  if (!ls?.cur) return;
+  const w = $('#ls_w'), r = $('#ls_r');
+  if (w) ls.cur.w = w.value === '' ? null : parseFloat(w.value);
+  if (r) ls.cur.reps = r.value === '' ? null : parseInt(r.value, 10);
+}
+
+function nextLabel() {
+  const p = ls.ptr, blocks = ls.plan.blocks, b = blocks[p.b];
+  const items = activeItems(b);
+  if (p.k + 1 < items.length) return `Then ${blockPos(b, p.k + 1)} · ${exName(items[p.k + 1].ex)}`;
+  if (p.r + 1 < b.sets) return `Then rest ${b.finisher || b.optional ? b.rest : state.lift.rest} s`;
+  const nb = blocks.slice(p.b + 1).find(x => activeItems(x).length);
+  return nb ? `Then rest, then ${BLOCK_LABEL[nb.key].toLowerCase()}` : 'Then stretch';
+}
+
+const stepperHTML = (k, label, v, unit) => `<div class="stp"><span>${label}</span>
+  <div class="stp-row">
+    <button class="stp-b" data-act="ls-step" data-k="${k}" data-d="-1" aria-label="Less">−</button>
+    <input id="ls_${k}" type="number" inputmode="decimal" step="any" min="0" value="${v ?? ''}" placeholder="?">
+    <button class="stp-b" data-act="ls-step" data-k="${k}" data-d="1" aria-label="More">+</button>
+  </div>${unit ? `<em>${unit}</em>` : ''}</div>`;
+
+function planListHTML() {
+  const p = ls.ptr;
+  return `<ol class="ls-plan">${ls.plan.blocks.map((b, bi) => b.items.map((it, k) => {
+    const done = ls.sets.filter(s => s.ex === it.ex).length;
+    const skipped = ls.skipped.includes(it.ex);
+    const now = bi === p.b && activeItems(b)[p.k]?.ex === it.ex && ls.phase !== 'rest';
+    const dots = [...Array(b.sets)].map((_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
+    return `<li class="${skipped ? 'skip' : ''}${now ? ' now' : ''}"><span class="lk">${blockPos(b, k)}</span><span>${esc(exName(it.ex))}</span><span class="dots">${dots}</span></li>`;
+  }).join('')).join('')}</ol>`;
+}
+
+function liftHTML() {
+  const { b, item } = curItem();
+  const ex = item.ex, e = EX[ex], t = ls.targets[ex] || {};
+  ls.cur ||= setDefaults(ex);
+  const [lo, hi] = e.reps;
+  const range = e.kind === 'carry' ? '30–40 m each hand' : `${lo}–${hi} reps${e.perSide ? ' each side' : ''}`;
+  const extraTrip = e.kind === 'carry' && ls.weak ? ` + 1 extra trip with the weight in your ${ls.weak === 'left' ? 'right' : 'left'} hand` : '';
+  let tgt;
+  if (t.setup && e.kind === 'carry') tgt = `<b>Setup:</b> pick a dumbbell you can carry 30–40 m standing tall, without leaning. ${b.sets} trips each hand${extraTrip}.`;
+  else if (t.setup) tgt = '<b>Setup:</b> pick a weight you think you could lift about 12 times, and do 10. You’ll rate it after.';
+  else if (e.kind === 'reps') tgt = `Target ${b.sets} × ${range}`;
+  else {
+    const held = t.change === 'held' ? (e.press && ls.st.shoulders !== 'fine' ? 'shoulders' : 'back') : '';
+    const tag = t.change === 'up' ? ' <span class="up">↑ up from last time</span>' : t.change === 'down' ? ' <span class="dn">↓ eased off</span>' : held ? ` <span class="held">held for your ${held}</span>` : '';
+    tgt = `Target ${b.sets} × ${range}${extraTrip} @ <b>${fmtW(ex, t.w)}</b>${tag}`;
+  }
+  const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
+  const lastLine = [t.last ? `Last time: ${t.last.map(s => fmtSet(ex, s)).join(', ')}` : '', today.length ? `Today: ${today.join(', ')}` : ''].filter(Boolean).join(' · ');
+  const note = state.lift.notes[ex];
+  const effort = e.kind === 'carry' ? '' : ls.early ? 'Leave about 3 reps in the tank.' : 'Leave 1–3 reps in the tank.';
+  return `<div class="ls lift">
+    ${lsTopHTML(`Day ${ls.day}`)}
+    <div class="ex">
+      <div class="ex-head"><span class="eyebrow">${BLOCK_LABEL[b.key]} · ${blockPos(b, ls.ptr.k)} · set ${ls.ptr.r + 1} of ${b.sets}</span>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
+      <div class="ex-fig">${figure(e.fig)}</div>
+      <h1>${esc(e.name)}</h1>
+      <p class="why"><b>Why it’s good for you:</b> ${esc(e.why)}</p>
+      <p class="ex-cue">${esc(e.cue)} ${effort}</p>
+      <p class="ex-target">${tgt}</p>
+      ${lastLine ? `<p class="ex-last">${lastLine}</p>` : ''}
+      ${note ? `<p class="ex-note"><b>Your notes:</b> ${esc(note)}</p>` : ''}
+      <div class="ex-in">
+        ${e.kind !== 'reps' ? stepperHTML('w', isLevel(ex) ? 'Bar notch' : e.dir === -1 ? 'Assist' : 'Weight', ls.cur.w, isLevel(ex) ? 'lower = harder' : wUnit()) : ''}
+        ${e.kind !== 'carry' ? stepperHTML('r', e.perSide ? 'Reps each side' : 'Reps', ls.cur.reps, '') : ''}
+      </div>
+      <button class="start inline" data-act="ls-done"><span>Done ✓</span><small>${esc(nextLabel())}</small></button>
+      <div class="ex-tools">
+        <button data-act="ls-note">${note ? 'Edit notes' : 'Machine notes'}</button>
+        <button data-act="ls-skip">Skip exercise</button>
+        <button class="tw" data-act="ls-tweak"><i></i>Something’s tweaking</button>
+      </div>
+    </div>
+    ${planListHTML()}
+  </div>`;
+}
+
+function showLift() {
+  ls.phase = 'lift';
+  showScreen(liftHTML());
+}
+
+function advance() {
+  const p = ls.ptr, b = ls.plan.blocks[p.b];
+  p.k++;
+  ls.cur = null;
+  if (p.k < activeItems(b).length) { saveLs(); return showLift(); }
+  p.k = 0;
+  p.r++;
+  if (p.r < b.sets) { saveLs(); return startRest(b.finisher || b.optional ? b.rest : state.lift.rest); }
+  nextBlock(b.finisher || b.optional ? b.rest : state.lift.rest);
+}
+
+function nextBlock(restSec) {
+  const p = ls.ptr, blocks = ls.plan.blocks;
+  p.b++;
+  p.r = 0;
+  p.k = 0;
+  ls.cur = null;
+  while (p.b < blocks.length && !activeItems(blocks[p.b]).length) p.b++;
+  saveLs();
+  if (p.b >= blocks.length) return startGuide('cooldown');
+  if (blocks[p.b].optional) return askOptional();
+  startRest(Math.min(restSec, 60));
+}
+
+function askOptional() {
+  const b = ls.plan.blocks[ls.ptr.b];
+  openSheet(`<h3>Got 4 more minutes?</h3>
+    <p>Optional: ${b.items.map(i => esc(exName(i.ex))).join(' + ')}, ${b.sets} sets each.</p>
+    <div class="sheet-btns"><button class="btn" data-act="ls-opt" data-v="0">Skip, stretch</button><button class="btn primary" data-act="ls-opt" data-v="1">Do it</button></div>`, false);
+}
+
+function startRest(sec) {
+  if (!sec) return showLift();
+  restT = { end: Date.now() + sec * 1000 / TIME_SCALE, beeped: false };
+  ls.phase = 'rest';
+  showScreen(restHTML());
+}
+
+function restLeft() { return (restT.end - Date.now()) * TIME_SCALE; }
+
+function restHTML() {
+  const { b, item } = curItem();
+  return `<div class="ls rest">
+    ${lsTopHTML(`Day ${ls.day}`)}
+    <div class="rest-main">
+      <span class="eyebrow">Rest</span>
+      <div class="rest-clock" id="restClock">${fmtClock(restLeft())}</div>
+      <p class="rest-next">Next: <b>${blockPos(b, ls.ptr.k)} · ${esc(exName(item.ex))}</b>, set ${ls.ptr.r + 1} of ${b.sets}</p>
+      <div class="row"><button class="btn" data-act="rest-add">+15 s</button><button class="btn primary" data-act="rest-skip">Skip rest</button></div>
+    </div>
+    ${planListHTML()}
+  </div>`;
+}
+
+function restTick() {
+  const left = restLeft();
+  const c = $('#restClock');
+  if (c) c.textContent = fmtClock(left);
+  if (!restT.beeped && left <= 3000) {
+    restT.beeped = true;
+    audio.countdown();
+  }
+  if (left <= 0) {
+    restT = null;
+    setTimeout(() => audio.say('restover'), 700);
+    audio.vibrate([300, 120, 300]);
+    showLift();
+  }
+}
+
+// Swap what's left of today for back- or shoulder-safe options.
+function applySafe(area) {
+  const p = ls.ptr;
+  ls.plan.blocks.forEach((b, bi) => {
+    if (bi < p.b) return;
+    b.items = b.items.map(it => {
+      const e = EX[it.ex];
+      let to = it.ex;
+      if (area === 'back' && e.back === 'load') to = e.safe ?? null;
+      if (area === 'shoulder' && e.press && e.shSafe !== it.ex) to = e.shSafe ?? null;
+      if (to === it.ex) return it;
+      if (!to) {
+        ls.skipped.push(it.ex);
+        return it;
+      }
+      ls.targets[to] ||= Lift.target(state, to, ls.st);
+      return { ...it, ex: to };
+    });
+  });
+  ls.cur = null;
+  afterRemoval();
+}
+
+// After skipping or swapping out the current exercise, carry on from the right place.
+function afterRemoval() {
+  const p = ls.ptr, items = activeItems(ls.plan.blocks[p.b]);
+  if (!items.length) return nextBlock(0);
+  if (p.k >= items.length) {
+    p.k = items.length - 1;
+    return advance();
+  }
+  saveLs();
+  showLift();
+}
+
+function tweakHTML() {
+  const t = tw;
+  return `<h3>Stop this exercise</h3>
+    <p>Put the weight down. Where is it, and how bad is it right now?</p>
+    <div class="chips">${['back', 'shoulder'].map(a => `<button class="chip" data-act="tw-area" data-v="${a}" aria-pressed="${t.area === a}">${a === 'back' ? 'Back' : 'Shoulder'}</button>`).join('')}</div>
+    <div class="painpad">${[...Array(11)].map((_, n) => `<button class="pp ${zone(n)}" data-act="tw-pain" data-v="${n}" aria-pressed="${t.pain === n}">${n}</button>`).join('')}</div>
+    ${t.pain >= 5 ? '<p class="stop">That’s a red day. End the lift here and check in.</p>' : t.pain !== null ? `<p class="note">The rest of today switches to ${t.area === 'shoulder' ? 'shoulder' : 'back'}-safe options.</p>` : ''}
+    <div class="sheet-btns">
+      <button class="btn" data-act="tw-cancel">Cancel</button>
+      ${t.pain !== null && t.pain < 5 ? `<button class="btn primary" data-act="tw-safe" ${t.area ? '' : 'disabled'}>Switch &amp; carry on</button>` : ''}
+      ${t.pain >= 5 ? `<button class="btn danger" data-act="tw-end" ${t.area ? '' : 'disabled'}>End lift</button>` : ''}
+    </div>`;
+}
+
+function recordTweak() {
+  const ex = curItem().item?.ex || null;
+  if (!ls.tweak || tw.pain >= ls.tweak.pain) ls.tweak = { area: tw.area, pain: tw.pain, ex };
+}
+
+// -- check-in ----------------------------------------------------------------
+
+function dropLift() {
+  guide = null;
+  restT = null;
+  stopLsLoop();
+  releaseWakeLock();
+  ls = null;
+  store.clearLift();
+  closeSheet();
+  if (history.state?.ls) history.back();
+  hideScreen();
+  render();
+}
+
+function toCheckin() {
+  guide = null;
+  restT = null;
+  closeSheet();
+  ls.phase = 'checkin';
+  ls.endedAt ||= Date.now();
+  ls.ci ||= { back: null, catch: false, radiating: false, shoulders: null, notes: '' };
+  saveLs();
+  stopLsLoop();
+  releaseWakeLock();
+  if (history.state?.ls) history.back();
+  showScreen(liftCheckinHTML());
+}
+
+function liftCheckinHTML() {
+  const c = ls.ci;
+  const sec = Math.round((ls.endedAt - ls.startedAt) / 1000);
+  return `<div class="ci">
+    <header class="ci-head">
+      <span class="eyebrow">Day ${ls.day} · ${fmtTime(ls.startedAt)}</span>
+      <h1>How’s your back?</h1>
+      <dl class="stats">
+        <div><dt>Time</dt><dd>${Math.round(sec / 60)}<small>min</small></dd></div>
+        <div><dt>Sets</dt><dd>${ls.sets.length}</dd></div>
+        <div><dt>Burn</dt><dd>${Lift.liftKcal(sec, state.profile.weight, units())}<small>kcal</small></dd></div>
+        <div><dt>Primer</dt><dd>${ls.primer ? '✓' : '–'}</dd></div>
+      </dl>
+    </header>
+    <section class="q"><h2>Back after lifting</h2>
+      <p class="note">0 = nothing. Your usual after-workout stiffness counts as 1–2.</p>
+      <div class="painpad">${[...Array(11)].map((_, n) => `<button class="pp ${zone(n)}" data-act="lci-back" data-v="${n}" aria-pressed="${c.back === n}">${n}</button>`).join('')}</div>
+      <div class="scale-key"><span class="g">0–2 fine</span><span class="a">3–4 careful</span><span class="r">5+ red</span></div>
+      <div class="chips flags">
+        <button class="chip" data-act="lci-flag" data-v="catch" aria-pressed="${c.catch}">Felt a catch or twinge</button>
+        <button class="chip" data-act="lci-flag" data-v="radiating" aria-pressed="${c.radiating}">Pain spreading into my butt or leg</button>
+      </div>
+    </section>
+    <section class="q"><h2>Shoulders</h2>
+      <div class="choices">
+        <button class="choice" data-act="lci-sh" data-v="fine" aria-pressed="${c.shoulders === 'fine'}"><b>Fine</b><small>Nothing new</small></button>
+        <button class="choice" data-act="lci-sh" data-v="sore" aria-pressed="${c.shoulders === 'sore'}"><b>A bit sore</b><small>Achy, not sharp</small></button>
+        <button class="choice" data-act="lci-sh" data-v="painful" aria-pressed="${c.shoulders === 'painful'}"><b>Painful</b><small>Sharp or pinching</small></button>
+      </div>
+    </section>
+    <section class="q"><h2>Notes <small>optional</small></h2>
+      <textarea id="lciNotes" rows="2" maxlength="500" placeholder="Leg press seat felt off, left shoulder tight on pulldowns…">${esc(c.notes)}</textarea>
+    </section>
+    <button class="start inline" data-act="lci-save"><span>Save</span></button>
+  </div>`;
+}
+
+function liftResultHTML(s) {
+  const c = s.prelim;
+  const st = liftCtx();
+  const title = { green: 'Green', amber: 'Amber', red: 'Red' }[c];
+  let body;
+  if (c === 'green') body = 'Your back stayed quiet. If it feels normal tomorrow morning, weights can go up next time.';
+  else if (c === 'amber') body = `Back ${s.back}/10${s.tweak?.area === 'back' ? ' and a tweak' : ''}. Next lift: no weight increases on lifts that load your back. Everything else carries on.`;
+  else {
+    body = 'Next lift is a back reset day: the primer plus seated, back-supported machines only. If you get numbness, tingling or weakness in a leg, or pain that wakes you at night, get it checked. Any change in bladder or bowel control: go to the ER the same day.';
+    if (st.reds >= 2) body += ' <b>Two red back days in a row: worth seeing a physio.</b>';
+  }
+  const sh = s.shoulders === 'sore' ? '<p class="note warn">Shoulders a bit sore: no weight increases on presses and raises next time.</p>'
+    : s.shoulders === 'painful' ? `<p class="note warn">Shoulders painful: presses and raises swap to the gentlest options until they’re fine.${st.painful >= 2 ? ' Twice in a row now: worth seeing a physio.' : ''}</p>` : '';
+  const setup = s.setup?.length ? `<p class="note">Starting weights saved for ${s.setup.length} exercise${s.setup.length > 1 ? 's' : ''}.</p>` : '';
+  return `<div class="result ${c}">
+    <div class="orb"></div>
+    <span class="eyebrow">Day ${s.day} logged</span>
+    <h1>${title}</h1>
+    <p>${body}</p>
+    ${sh}${setup}
+    <dl class="stats">
+      <div><dt>Sets</dt><dd>${s.sets.length}</dd></div>
+      <div><dt>Time</dt><dd>${Math.round(s.durSec / 60)}<small>min</small></dd></div>
+      <div><dt>Burn</dt><dd>${s.kcal}<small>kcal</small></dd></div>
+      <div><dt>Back</dt><dd>${s.back}<small>/10</small></dd></div>
+    </dl>
+    <button class="start inline" data-act="result-done"><span>Done</span></button>
+  </div>`;
+}
+
+// -- progress ----------------------------------------------------------------
+
+function sparkSVG(vals) {
+  if (vals.length < 2) return '<span class="spark"></span>';
+  const w = 84, h = 28, min = Math.min(...vals), max = Math.max(...vals);
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1) * (w - 4) + 2).toFixed(1)},${(h - 4 - (max === min ? 0.5 : (v - min) / (max - min)) * (h - 8)).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+
+function topOf(id, sets) {
+  const e = EX[id];
+  if (e.kind === 'reps') return Math.max(...sets.map(s => s.reps));
+  const ws = sets.map(s => s.w).filter(w => w !== null);
+  return isLevel(id) || e.dir === -1 ? -Math.min(...ws) : Math.max(...ws);
+}
+
+function strengthHTML() {
+  const lifts = [...state.lifts].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const pk = state.planks.at(-1), first = state.planks[0];
+  const plank = pk
+    ? `<div class="plank">
+        <div><small>Left</small><b>${pk.left}<i>s</i></b></div>
+        <div><small>Right</small><b>${pk.right}<i>s</i></b></div>
+        <div><small>Gap</small><b class="${Lift.plankGap(pk) <= 5 ? 'ok' : ''}">${Lift.plankGap(pk)}<i>%</i></b></div>
+      </div>
+      <p class="note">Goal: within about 5%. ${state.planks.length > 1 ? `First test, ${fmtDay(first.at)}: ${first.left} s / ${first.right} s (${Lift.plankGap(first)}% gap).` : 'Retested every 4 weeks in the primer.'}</p>`
+    : '<p class="note">Your first side plank test happens in your first primer.</p>';
+
+  const ids = [...new Set(lifts.flatMap(s => (s.sets || []).map(x => x.ex)))].filter(id => EX[id]);
+  const exRows = ids.map(id => {
+    const h = Lift.history(state, id);
+    const last = h.at(-1);
+    return `<li class="exr"><div><b>${esc(exName(id))}</b><small>${fmtDay(last.at)}: ${last.sets.map(s => fmtSet(id, s)).join(', ')}</small></div>${sparkSVG(h.slice(-10).map(x => topOf(id, x.sets)))}</li>`;
+  }).join('');
+
+  const rows = lifts.map(s => {
+    const c = Lift.liftFinal(s);
+    const byEx = [...new Set((s.sets || []).map(x => x.ex))].map(id => `${esc(exName(id))} ${s.sets.filter(x => x.ex === id).map(x => fmtSet(id, x)).join(', ')}`);
+    return `<details class="hist">
+      <summary><i class="dot ${c === 'pending' ? `pending ${s.prelim}` : c}"></i><span class="h-d">${fmtDay(s.at)}</span><span class="h-s">Day ${s.day}</span><span class="h-r">${(s.sets || []).length} sets</span><span class="h-k">${s.kcal} kcal</span></summary>
+      <div class="h-b">
+        <p>Back ${s.back}/10${s.catch ? ' · catch' : ''}${s.radiating ? ' · spreading pain' : ''} · shoulders ${SHOULDER_TEXT[s.shoulders] || '–'}${s.tweak ? ` · tweak: ${s.tweak.area} ${s.tweak.pain}/10` : ''}</p>
+        <p>Next morning: ${s.morning ? MORNING_TEXT[s.morning] : s.prelim === 'red' ? 'n/a' : 'not answered yet'}</p>
+        ${byEx.length ? `<p class="h-sets">${byEx.join('<br>')}</p>` : ''}
+        ${s.notes ? `<p class="h-n">“${esc(s.notes)}”</p>` : ''}
+        <button class="btn ghost small" data-act="ldel" data-id="${s.id}">Delete this lift</button>
+      </div>
+    </details>`;
+  }).join('');
+
+  return `
+    <section class="group"><h2>Side plank balance</h2>${plank}</section>
+    <section class="group"><h2>Strength</h2>
+      ${exRows ? `<ul class="exlist">${exRows}</ul><p class="note" style="margin-top:10px">Lines show your best set per session. Holding steady while you lose weight counts as a win.</p>` : '<p class="note">No lifts yet. Your first one will show up here.</p>'}
+    </section>
+    ${rows ? `<section class="group"><h2>Lift history</h2>${rows}</section>` : ''}`;
 }
 
 // ---- settings helpers ------------------------------------------------------
@@ -849,6 +1503,11 @@ function setUnits(u) {
   if (p.weight) p.weight = round1(toImp ? p.weight * LB_PER_KG : p.weight / LB_PER_KG);
   t.walkSpeed = round1(toImp ? t.walkSpeed / KM_PER_MI : t.walkSpeed * KM_PER_MI);
   t.runSpeed = round1(toImp ? t.runSpeed / KM_PER_MI : t.runSpeed * KM_PER_MI);
+  for (const s of state.lifts) {
+    for (const x of s.sets || []) {
+      if (x.w !== null && EX[x.ex] && !isLevel(x.ex)) x.w = round1(toImp ? x.w * LB_PER_KG : x.w / LB_PER_KG);
+    }
+  }
   p.units = u;
 }
 
@@ -884,7 +1543,7 @@ async function importFile(file) {
   if (!file) return;
   try {
     const next = store.fromBackup(await file.text());
-    const ok = await ask('Replace your data?', `This backup has ${next.sessions.length} runs. It replaces everything on this phone.`,
+    const ok = await ask('Replace your data?', `This backup has ${next.sessions.length} runs and ${next.lifts.length} lifts. It replaces everything on this phone.`,
       [{ label: 'Cancel', value: false }, { label: 'Replace', value: true, cls: 'danger' }]);
     if (!ok) return;
     state = next;
@@ -925,6 +1584,13 @@ const actions = {
           : `You ran ${rest.since === 0 ? 'today' : 'yesterday'}. Shins and Achilles do better with a day off between runs.`,
         [{ label: 'Rest instead', value: false, cls: 'primary' }, { label: 'Run anyway', value: true }]);
       if (!ok) return;
+    } else {
+      const st = liftCtx(now);
+      if (st.last && !st.last.withRun && !st.last.noLegs && daysBetween(st.lastT, now) === 1) {
+        const ok = await ask('Leg work yesterday', 'You lifted with leg work yesterday. Legs do better with 48 hours before a run.',
+          [{ label: 'Rest instead', value: false, cls: 'primary' }, { label: 'Run anyway', value: true }]);
+        if (!ok) return;
+      }
     }
     startWorkout(prog.stage);
   },
@@ -1175,6 +1841,357 @@ const actions = {
     chartMetric = el.dataset.v;
     render();
   },
+
+  'set-num'(el) {
+    setPath(state, el.dataset.path, Number(el.dataset.v));
+    $$(`[data-act=set-num][data-path="${el.dataset.path}"]`).forEach(b => b.setAttribute('aria-pressed', b === el));
+    persist();
+  },
+
+  // strength: starting, recovering, today's choices
+  'lift-go'() {
+    hideScreen();
+    render();
+    startLift(true);
+  },
+
+  async 'lift-only'() {
+    audio.unlock();
+    const st = liftCtx();
+    if (st.lastT !== null && daysBetween(st.lastT, Date.now()) === 1) {
+      const ok = await ask('You lifted yesterday', 'Muscles do better with a day in between, and every lift works your whole body.',
+        [{ label: 'Rest instead', value: false, cls: 'primary' }, { label: 'Lift anyway', value: true }]);
+      if (!ok) return;
+    }
+    startLift(false);
+  },
+
+  'lift-day'(el) {
+    state.lift.next = el.dataset.v;
+    persist();
+    render();
+  },
+
+  'run-stretch'() {
+    hideScreen();
+    render();
+    audio.unlock();
+    ls = { kind: 'stretch', startedAt: Date.now(), phase: 'cooldown' };
+    requestWakeLock();
+    startLsLoop();
+    startGuide('cooldown');
+  },
+
+  'lift-resume'() {
+    const a = store.loadLift();
+    if (!a) return render();
+    audio.unlock();
+    ls = { ...a, cur: null };
+    restT = null;
+    guide = null;
+    history.pushState({ ls: 1 }, '');
+    requestWakeLock();
+    startLsLoop();
+    if (ls.phase === 'primer' || ls.phase === 'cooldown') return startGuide(ls.phase);
+    if (ls.phase === 'checkin') return toCheckin();
+    showLift();
+  },
+
+  'lift-recover-ci'() {
+    const a = store.loadLift();
+    if (!a) return render();
+    ls = a;
+    toCheckin();
+  },
+
+  async 'lift-drop'() {
+    const ok = await ask('Discard this lift?', 'It won’t be logged.', [{ label: 'Keep', value: false, cls: 'primary' }, { label: 'Discard', value: true, cls: 'danger' }]);
+    if (ok) { store.clearLift(); render(); }
+  },
+
+  lmorning(el) {
+    const now = Date.now();
+    const s = state.lifts.find(x => Lift.liftNeedsMorning(x) && daysBetween(x.at, now) >= 1);
+    if (!s) return;
+    s.morning = el.dataset.v;
+    s.morningAt = new Date().toISOString();
+    persist();
+    render();
+    const c = Lift.liftFinal(s);
+    toast(c === 'green' ? '<b>Back: green.</b> Weights can go up next lift.'
+      : c === 'amber' ? '<b>Back: amber.</b> No increases on back-loading lifts next time.'
+      : '<b>Back: red.</b> Next lift is a back reset day.', 4000);
+  },
+
+  p2(el) {
+    state.lift.phase2 = el.dataset.v === '1';
+    persist();
+    render();
+    toast(state.lift.phase2 ? 'Phase 2 exercises added' : 'Staying with the current exercises. Change it any time in Settings.');
+  },
+
+  'plank-redo'() {
+    state.lift.plankDue = true;
+    persist();
+    render();
+    toast('Side plank test in your next primer');
+  },
+
+  'swaps-reset'() {
+    state.lift.swaps = {};
+    persist();
+    render();
+    toast('Back to the standard exercises');
+  },
+
+  async ldel(el) {
+    const ok = await ask('Delete this lift?', 'It’s removed from your history, and weight suggestions recalculate.',
+      [{ label: 'Keep it', value: false, cls: 'primary' }, { label: 'Delete', value: true, cls: 'danger' }]);
+    if (!ok) return;
+    state.lifts = state.lifts.filter(s => s.id !== el.dataset.id);
+    persist();
+    render();
+  },
+
+  // primer and stretches
+  'gd-pause'() {
+    if (!guide) return;
+    if (guide.paused) guide.resume(); else guide.pause();
+    $('#gdPause').textContent = guide.paused ? 'Resume' : 'Pause';
+    $('.gd')?.classList.toggle('paused', guide.paused);
+  },
+
+  'gd-next'() { guide?.next(); },
+
+  'gd-stop'() {
+    if (guide?.step?.kind === 'test') finishTest(guide.step.side);
+  },
+
+  'ls-skip-part'() {
+    if (!ls || !guide) return;
+    const phase = ls.phase;
+    guide = null;
+    if (ls.kind === 'stretch') return finishRunStretch();
+    if (phase === 'primer') { saveLs(); return showLift(); }
+    toCheckin();
+  },
+
+  async 'ls-end'() {
+    if (!ls) return;
+    if (ls.kind === 'stretch') { guide = null; return finishRunStretch(); }
+    const running = guide && !guide.paused;
+    if (running) guide.pause();
+    const btns = [{ label: 'Keep going', value: 'keep', cls: 'primary' }, { label: 'Check in', value: 'ci' }];
+    if (!ls.sets.length) btns.push({ label: 'Discard', value: 'drop', cls: 'danger' });
+    const v = await ask('End the session?', ls.sets.length ? 'You’ll check in with what you’ve done so far.' : 'Nothing logged yet.', btns);
+    if (!ls) return;
+    if (v === 'ci') return toCheckin();
+    if (v === 'drop') return dropLift();
+    if (running && guide) guide.resume();
+  },
+
+  // lifting
+  'ls-step'(el) {
+    if (!ls?.cur) return;
+    syncCur();
+    const ex = curItem().item.ex;
+    const d = Number(el.dataset.d);
+    if (el.dataset.k === 'w') {
+      const inc = Lift.incOf(ex, units());
+      ls.cur.w = Math.max(0, Math.round(((ls.cur.w ?? 0) + d * inc) * 100) / 100);
+      $('#ls_w').value = ls.cur.w;
+    } else {
+      ls.cur.reps = Math.max(0, (ls.cur.reps ?? 0) + d);
+      $('#ls_r').value = ls.cur.reps;
+    }
+  },
+
+  'ls-done'() {
+    if (!ls || ls.phase !== 'lift') return;
+    syncCur();
+    const { item } = curItem();
+    const ex = item.ex, e = EX[ex];
+    const w = e.kind === 'reps' ? null : ls.cur.w;
+    const reps = e.kind === 'carry' ? 1 : ls.cur.reps;
+    if (e.kind !== 'reps' && !(Number.isFinite(w) && w >= 0 && w <= 2000)) return toast(isLevel(ex) ? 'Enter the bar notch' : 'Enter the weight you used');
+    if (!(Number.isInteger(reps) && reps >= 0 && reps <= 100)) return toast('Enter your reps');
+    const set = { ex, orig: item.orig, w, reps, r: ls.ptr.r };
+    ls.sets.push(set);
+    ls.next[ex] = { w, reps };
+    audio.vibrate([60]);
+    if (ls.targets[ex]?.setup && e.kind !== 'carry') {
+      if (!ls.setupList.includes(ex)) ls.setupList.push(ex);
+      saveLs();
+      openSheet(`<h3>How many more?</h3>
+        <p>How many more reps could you have done with good form?</p>
+        <div class="rir">${[0, 1, 2, 3, 4].map(n => `<button class="pp ${n <= 1 ? 'zr' : n >= 4 ? 'za' : ''}" data-act="ls-rir" data-v="${n}">${n === 4 ? '4+' : n}</button>`).join('')}</div>
+        <p class="note">Most people guess about 1 rep low. Torn between two? Pick the higher one.</p>`, false);
+      return;
+    }
+    saveLs();
+    advance();
+  },
+
+  'ls-rir'(el) {
+    const set = ls?.sets.at(-1);
+    if (!set) return;
+    set.rir = Number(el.dataset.v);
+    if (set.w !== null) {
+      const nw = Lift.setupNext(set.ex, set.w, set.rir, units());
+      ls.next[set.ex] = { w: nw, reps: 10 };
+      if (nw !== set.w) toast(`Next set: <b>${fmtW(set.ex, nw)}</b>`);
+    }
+    closeSheet();
+    advance();
+  },
+
+  'ls-opt'(el) {
+    closeSheet();
+    if (el.dataset.v === '1') return startRest(45);
+    ls.ptr.b = ls.plan.blocks.length;
+    saveLs();
+    startGuide('cooldown');
+  },
+
+  'ls-skip'() {
+    if (!ls || ls.phase !== 'lift') return;
+    ls.skipped.push(curItem().item.ex);
+    ls.cur = null;
+    afterRemoval();
+  },
+
+  'ls-swap'() {
+    syncCur();
+    const { item } = curItem();
+    const opts = [...new Set([item.orig, ...(EX[item.orig]?.alts || []), ...(EX[item.ex].alts || [])])].filter(id => id !== item.ex && EX[id]);
+    openSheet(`<h3>Swap exercise</h3>
+      <p>Machine taken, or this one doesn’t agree with you? The app remembers your pick.</p>
+      <div class="swaps">${opts.map(id => `<button class="swap-opt" data-act="ls-swap-to" data-v="${id}">${figure(EX[id].fig)}<span><b>${esc(EX[id].name)}</b><small>${esc(EX[id].why)}</small></span></button>`).join('')}</div>
+      <button class="btn wide ghost" data-act="sheet-close">Cancel</button>`);
+  },
+
+  'ls-swap-to'(el) {
+    const id = el.dataset.v;
+    const { item } = curItem();
+    if (id === item.orig) delete state.lift.swaps[item.orig]; else state.lift.swaps[item.orig] = id;
+    persist();
+    item.ex = id;
+    ls.targets[id] ||= Lift.target(state, id, ls.st);
+    ls.cur = null;
+    closeSheet();
+    saveLs();
+    showLift();
+    toast(`Swapped to ${esc(EX[id].name)}`);
+  },
+
+  'ls-note'() {
+    syncCur();
+    const ex = curItem().item.ex;
+    openSheet(`<h3>Machine notes</h3>
+      <p>${esc(EX[ex].name)}: seat height, pad position, which machine. Shown next time.</p>
+      <textarea id="lsNote" rows="3" maxlength="200" placeholder="Seat 4, back pad 2">${esc(state.lift.notes[ex] || '')}</textarea>
+      <div class="sheet-btns"><button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="ls-note-save">Save</button></div>`);
+  },
+
+  'ls-note-save'() {
+    const ex = curItem().item.ex;
+    const v = $('#lsNote').value.trim().slice(0, 200);
+    if (v) state.lift.notes[ex] = v; else delete state.lift.notes[ex];
+    persist();
+    closeSheet();
+    showLift();
+  },
+
+  'ls-tweak'() {
+    syncCur();
+    tw = { area: null, pain: null };
+    openSheet(tweakHTML(), false);
+  },
+
+  'tw-area'(el) {
+    tw.area = el.dataset.v;
+    $('#sheet .sheet-card').innerHTML = tweakHTML();
+  },
+
+  'tw-pain'(el) {
+    tw.pain = Number(el.dataset.v);
+    $('#sheet .sheet-card').innerHTML = tweakHTML();
+  },
+
+  'tw-cancel'() {
+    tw = null;
+    closeSheet();
+  },
+
+  'tw-safe'() {
+    if (!tw?.area || tw.pain === null) return;
+    recordTweak();
+    const area = tw.area;
+    tw = null;
+    closeSheet();
+    toast(`Switched the rest of today to ${area}-safe options`);
+    applySafe(area);
+  },
+
+  'tw-end'() {
+    if (!tw?.area) return;
+    recordTweak();
+    tw = null;
+    toCheckin();
+  },
+
+  'rest-add'() {
+    if (!restT) return;
+    restT.end += 15000 / TIME_SCALE;
+    if (restLeft() > 3000) restT.beeped = false;
+  },
+
+  'rest-skip'() {
+    if (!restT) return;
+    restT = null;
+    showLift();
+  },
+
+  // lift check-in
+  'lci-back'(el) {
+    ls.ci.back = Number(el.dataset.v);
+    $$('[data-act=lci-back]').forEach(b => b.setAttribute('aria-pressed', b === el));
+  },
+
+  'lci-flag'(el) {
+    const k = el.dataset.v;
+    ls.ci[k] = !ls.ci[k];
+    el.setAttribute('aria-pressed', ls.ci[k]);
+  },
+
+  'lci-sh'(el) {
+    ls.ci.shoulders = el.dataset.v;
+    $$('[data-act=lci-sh]').forEach(b => b.setAttribute('aria-pressed', b === el));
+  },
+
+  'lci-save'() {
+    if (!ls?.ci) return;
+    const c = ls.ci;
+    if (c.back === null) return toast('Pick your back score, 0 to 10');
+    if (!c.shoulders) return toast('Pick how your shoulders feel');
+    c.notes = $('#lciNotes').value.trim().slice(0, 500);
+    const end = ls.endedAt || Date.now();
+    const durSec = Math.round((end - ls.startedAt) / 1000);
+    const s = {
+      id: ls.id, at: new Date(ls.startedAt).toISOString(), endedAt: new Date(end).toISOString(),
+      day: ls.day, withRun: !!ls.withRun, sets: ls.sets, skipped: ls.skipped, primer: !!ls.primer, cooldown: !!ls.cooldown, setup: ls.setupList || [],
+      back: c.back, catch: c.catch, radiating: c.radiating, shoulders: c.shoulders, tweak: ls.tweak, notes: c.notes,
+      durSec, kcal: Lift.liftKcal(durSec, state.profile.weight, units()), units: units(), weight: state.profile.weight,
+      reset: !!ls.reset, trimmed: !!ls.trim, noLegs: !!ls.noLegs,
+    };
+    s.prelim = Lift.liftPrelim(s);
+    state.lifts.push(s);
+    state.lift.next = null;
+    persist();
+    store.clearLift();
+    ls = null;
+    showScreen(liftResultHTML(s));
+  },
 };
 
 // ---- wiring ----------------------------------------------------------------
@@ -1248,6 +2265,9 @@ window.addEventListener('popstate', () => {
   if (wk) {
     history.pushState({ wk: 1 }, '');
     actions['wk-end']();
+  } else if (ls && ls.kind !== 'stretch' && ls.phase !== 'checkin') {
+    history.pushState({ ls: 1 }, '');
+    actions['ls-end']();
   }
 });
 
@@ -1256,6 +2276,8 @@ window.addEventListener('beforeunload', e => {
     store.saveActive(snapshot());
     e.preventDefault();
     e.returnValue = '';
+  } else if (ls && ls.kind !== 'stretch') {
+    saveLs();
   }
 });
 
@@ -1265,11 +2287,17 @@ document.addEventListener('visibilitychange', () => {
       requestWakeLock();
       audio.resume();
       loop();
+    } else if (ls && lsTimer) {
+      requestWakeLock();
+      audio.resume();
+      lsLoop();
     } else if (state.onboarded && !$('#screen').classList.contains('on')) {
       render();
     }
   } else if (wk) {
     store.saveActive(snapshot());
+  } else if (ls) {
+    saveLs();
   }
 });
 

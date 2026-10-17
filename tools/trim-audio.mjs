@@ -1,6 +1,6 @@
 // Trims leading/trailing silence from the voice clips so cues land promptly
 // and stay well under Android's 5-second "short sound" limit.
-// Run: node tools/trim-audio.mjs
+// Run: node tools/trim-audio.mjs [clip names…]   (no names = every clip)
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,10 @@ const THRESHOLD = 400;      // 16-bit sample level treated as silence
 const PAD_START = 0.03;     // seconds kept before the first sound
 const PAD_END = 0.08;       // seconds kept after the last sound
 
-for (const name of (await fs.readdir(dir)).filter(f => f.endsWith('.wav'))) {
+const only = process.argv.slice(2);
+const wanted = f => f.endsWith('.wav') && (!only.length || only.includes(f.slice(0, -4)));
+
+for (const name of (await fs.readdir(dir)).filter(wanted)) {
   const file = path.join(dir, name);
   const buf = await fs.readFile(file);
   let off = 12, fmt = null, data = null;

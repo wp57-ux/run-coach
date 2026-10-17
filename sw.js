@@ -1,12 +1,13 @@
 // Offline support: the whole app is cached on first visit so it works at the
 // gym without signal. Bump VERSION whenever you publish changes.
-const VERSION = 'run-coach-v2';
+const VERSION = 'run-coach-v3';
 const FONT_CACHE = 'run-coach-fonts';
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
-  'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40'];
+  'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover'];
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/plan.js', 'js/calories.js', 'js/audio.js', 'js/workout.js',
+  'js/lift.js', 'js/lift-data.js', 'js/guide.js', 'js/drawings.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   ...CLIPS.map(c => `audio/${c}.wav`),
 ];
