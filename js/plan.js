@@ -76,7 +76,7 @@ export const daysBetween = (a, b) => Math.round((dayStart(b) - dayStart(a)) / DA
 export function progression(state, now = Date.now()) {
   const events = [
     ...state.overrides.map(o => ({ t: Date.parse(o.at), o })),
-    ...state.sessions.map(s => ({ t: Date.parse(s.at), s })),
+    ...state.sessions.filter(s => s.mode !== 'bike').map(s => ({ t: Date.parse(s.at), s })),
   ].sort((a, b) => a.t - b.t);
 
   let stage = state.startStage || 1;

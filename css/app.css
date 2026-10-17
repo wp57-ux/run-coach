@@ -135,6 +135,8 @@ h1, h2, h3, p { margin: 0; font-weight: inherit; }
 .legend .run::before { background: var(--run); }
 .legend .walk::before { background: var(--walk); }
 .legend .easy::before { background: var(--easy); }
+.legend .strong::before { background: var(--amber); }
+.legend .hard::before { background: var(--red); }
 
 /* ---- dot-matrix profile ---- */
 .matrix { display: grid; grid-template-columns: repeat(var(--cols), 1fr); align-items: end; }
@@ -150,6 +152,11 @@ h1, h2, h3, p { margin: 0; font-weight: inherit; }
 .col.run { color: var(--run); }
 .col.walk { color: var(--walk); }
 .col.warmup, .col.cooldown { color: var(--easy); }
+/* bike effort zones */
+.col.easy { color: var(--walk); }
+.col.steady { color: var(--run); }
+.col.strong { color: var(--amber); }
+.col.hard { color: var(--red); }
 
 /* ---- stats ---- */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0; }
@@ -361,6 +368,11 @@ output { font-family: var(--display); font-weight: 800; font-size: 17px; color: 
 }
 .wk[data-type=run] { --wk-bg: var(--run); --wk-ink: var(--run-ink); --belt: .45s; }
 .wk[data-type=walk] { --wk-bg: var(--walk-deep); --wk-ink: #fff; --belt: .9s; }
+/* bike zones: easy blue, steady lime, strong amber, hard red */
+.wk[data-type=easy] { --wk-bg: var(--walk-deep); --wk-ink: #fff; --belt: .9s; }
+.wk[data-type=steady] { --wk-bg: var(--run); --wk-ink: var(--run-ink); --belt: .55s; }
+.wk[data-type=strong] { --wk-bg: var(--amber); --wk-ink: #1d1404; --belt: .42s; }
+.wk[data-type=hard] { --wk-bg: var(--red); --wk-ink: #fff; --belt: .3s; }
 /* moving treadmill belt */
 .wk::before {
   content: ''; position: absolute; inset: 0; pointer-events: none;
@@ -390,7 +402,7 @@ output { font-family: var(--display); font-weight: 800; font-size: 17px; color: 
 
 .wk-prof { margin: 12px 0 8px; }
 .wk .col { color: var(--wk-ink); --ghost: color-mix(in srgb, var(--wk-ink) 13%, transparent); }
-.wk .col.walk b, .wk .col.warmup b, .wk .col.cooldown b { opacity: .6; }
+.wk .col.walk b, .wk .col.easy b, .wk .col.warmup b, .wk .col.cooldown b { opacity: .6; }
 .wk .col.past b { opacity: .22; }
 .wk .col.now b { opacity: 1; animation: blink 1s steps(2, start) infinite; }
 
@@ -616,6 +628,14 @@ legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 600; colo
 .spark { flex: none; width: 84px; height: 28px; }
 .spark polyline { fill: none; stroke: var(--run); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .h-sets { font-size: 12.5px; color: var(--ink-3); }
+
+/* ---- bike ---- */
+.ci-w { max-width: 200px; margin-top: 12px; }
+.power-row { flex-wrap: nowrap; align-items: stretch; }
+.power-row .inp { flex: 1; }
+.power-row .btn { min-height: auto; }
+.power-spark { margin: -2px 0 10px; }
+.power-spark .spark { width: 100%; height: 44px; }
 
 /* ---- motion ---- */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }

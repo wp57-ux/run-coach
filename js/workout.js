@@ -11,6 +11,7 @@ export class Workout {
     this.pos = 0;
     this.idx = 0;
     this.spent = { run: 0, walk: 0 };
+    this.byType = {};
     this.paused = false;
     this.running = false;
     this.done = false;
@@ -78,15 +79,18 @@ export class Workout {
       while (dt > 0 && this.idx < this.segs.length) {
         const end = this.bounds[this.idx + 1];
         const room = end - this.pos;
-        const kind = this.segs[this.idx].type === 'run' ? 'run' : 'walk';
+        const type = this.segs[this.idx].type;
+        const kind = type === 'run' ? 'run' : 'walk';
         if (dt >= room) {
           this.spent[kind] += room;
+          this.byType[type] = (this.byType[type] || 0) + room;
           this.pos = end;
           dt -= room;
           this.idx++;
           if (this.idx < this.segs.length) this.emit('segment', this.idx);
         } else {
           this.spent[kind] += dt;
+          this.byType[type] = (this.byType[type] || 0) + dt;
           this.pos += dt;
           dt = 0;
         }
@@ -120,11 +124,11 @@ function buildCues(segs, bounds) {
   const total = bounds[bounds.length - 1];
   segs.forEach((s, i) => {
     const start = bounds[i], end = bounds[i + 1], dur = end - start;
-    cues.push({ at: start + 600, kind: 'voice', clip: s.fiveK ? 'run5k' : s.type, segStart: true });
+    cues.push({ at: start + 600, kind: 'voice', clip: s.clip || (s.fiveK ? 'run5k' : s.type), segStart: true });
     if (i > 0) cues.push({ at: start, kind: 'vibe', type: s.type });
     if (dur >= 8000) cues.push({ at: end - 3000, kind: 'countdown' });
     if (dur >= 180000) cues.push({ at: end - 60000, kind: 'voice', clip: 'oneminute' });
-    if (s.type === 'run' && dur >= 600000) {
+    if (['run', 'steady', 'strong'].includes(s.type) && dur >= 600000) {
       for (let m = 5; m <= 40 && m * 60000 <= dur - 90000; m += 5) {
         cues.push({ at: start + m * 60000, kind: 'voice', clip: 'm' + m, update: true });
       }

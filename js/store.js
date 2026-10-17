@@ -13,8 +13,12 @@ export const DEFAULTS = {
   // natural = measured steps/min; scope = 'first' run block only, or 'all'
   metronome: { on: false, bpm: 160, volume: 0.4, natural: null, scope: 'first' },
   startStage: 1,
+  // cardio: 'bike' or 'run'. sessions holds both; bike rides have mode: 'bike'.
+  cardio: 'bike',
   sessions: [],
   overrides: [],
+  // watts = the bike shows watts; overrides = stage or power you set by hand
+  bike: { watts: true, startStage: 1, overrides: [] },
   // strength: next = a day you picked by hand; swaps = your exercise swaps;
   // notes = machine notes; phase2 = null (not offered yet), true or false
   lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 75 },

@@ -1,8 +1,22 @@
 # Run Coach
 
-A personal run/walk interval coach for the treadmill, with a strength plan
-alongside. It's a single-user Progressive Web App: no accounts and no
-server. Your runs and lifts are stored only on your phone.
+A personal cardio and strength coach for the gym: a stationary-bike plan (or
+the original treadmill run/walk plan) with a strength plan alongside. It's a
+single-user Progressive Web App: no accounts and no server. Your rides, runs
+and lifts are stored only on your phone.
+
+**Bike (the default cardio; switch in Settings)**
+
+- 12 stages from 15 minutes steady up to 35 minutes strong, non-stop, with
+  tempo and 1-minute hard intervals in between. Stages unlock after two green
+  rides in a row, repeat on amber, and drop back on red
+- Targets come from your steady power, set on the first (setup) ride: easy 60%,
+  steady 100%, strong 115%, hard 135%. Rides that feel easy add 5 W, and hard
+  ones take 5 W off. Without watts, you ride by feel (talk test)
+- Calories from the ACSM leg-cycling equation (or typical rates per effort zone
+  when the bike shows no watts)
+
+**Run (treadmill)**
 
 - 12 stages from 5 × (run 3 / walk 2) up to a non-stop 5K
 - You move up after two pain-free ("green") runs in a row, repeat the stage

@@ -230,8 +230,10 @@ export function primerSteps({ weak, test, warm }) {
   [3, 2, 1].forEach((n, k) => {
     if (k) s.push({ kind: 'rest', ex: 'birddog', sec: 8, label: 'Short rest' });
     for (let i = 1; i <= n; i++) {
-      s.push({ kind: 'hold', ex: 'birddog', side: 'left', sec: 10, voice: i === 1 ? 'hold' : 'switch', label: `Set ${k + 1} · left arm, right leg` });
-      s.push({ kind: 'hold', ex: 'birddog', side: 'right', sec: 10, voice: 'switch', label: `Set ${k + 1} · right arm, left leg` });
+      if (i > 1) s.push({ kind: 'relax', ex: 'birddog', sec: 3, voice: 'switch', label: 'Back to the left arm' });
+      s.push({ kind: 'hold', ex: 'birddog', side: 'left', sec: 10, voice: 'hold', label: `Set ${k + 1} · left arm, right leg` });
+      s.push({ kind: 'relax', ex: 'birddog', sec: 3, voice: 'switch', label: 'Switch to the right arm' });
+      s.push({ kind: 'hold', ex: 'birddog', side: 'right', sec: 10, voice: 'hold', label: `Set ${k + 1} · right arm, left leg` });
     }
   });
 
@@ -240,25 +242,46 @@ export function primerSteps({ weak, test, warm }) {
   return s.map(x => ({ ...x, lib: 'primer' }));
 }
 
+// Every stretch gets time to get into position, and to switch sides.
+const GET_IN = 6, SWITCH = 5, BEND = 3;
+const hold = (ex, side, sec, label) => ({ kind: 'stretch', ex, side, sec, voice: 'hold', beep: true, label });
+
 function stretch(out, ex, sec, extra) {
-  out.push({ kind: 'stretch', ex, side: 'left', sec, voice: 'next', beep: true, label: 'Left side' });
-  out.push({ kind: 'stretch', ex, side: 'right', sec, voice: 'switch', beep: true, label: 'Right side' });
-  if (extra) out.push({ kind: 'stretch', ex, side: extra.side, sec: extra.sec, voice: 'switch', beep: true, label: `A little extra on the ${extra.side} side` });
+  out.push({ kind: 'ready', ex, side: 'left', sec: GET_IN, voice: 'next', label: 'Get into position, left side' });
+  out.push(hold(ex, 'left', sec, 'Left side'));
+  out.push({ kind: 'ready', ex, side: 'right', sec: SWITCH, voice: 'switch', label: 'Switch to the right side' });
+  out.push(hold(ex, 'right', sec, 'Right side'));
+  if (extra) {
+    out.push({ kind: 'ready', ex, side: extra.side, sec: SWITCH, voice: 'switch', label: `Back to the ${extra.side} side` });
+    out.push(hold(ex, extra.side, extra.sec, `A little extra on the ${extra.side} side`));
+  }
+}
+
+// Both calf stretches on one leg (straight knee, then bend it), then the other leg.
+function calves(out, sec) {
+  for (const side of ['left', 'right']) {
+    out.push({ kind: 'ready', ex: 'calfwall', side, sec: side === 'left' ? GET_IN : SWITCH, voice: side === 'left' ? 'next' : 'switch', label: `Get into position, ${side} leg back` });
+    out.push(hold('calfwall', side, sec, `${side === 'left' ? 'Left' : 'Right'} calf, knee straight`));
+    out.push({ kind: 'ready', ex: 'soleuswall', side, sec: BEND, voice: null, label: 'Now bend that back knee' });
+    out.push(hold('soleuswall', side, sec, `${side === 'left' ? 'Left' : 'Right'} calf, knee bent`));
+  }
 }
 
 export function runStretchSteps() {
   const s = [];
-  for (const ex of ['calfwall', 'soleuswall', 'hipflexor', 'figure4']) stretch(s, ex, 30);
+  calves(s, 30);
+  stretch(s, 'hipflexor', 30);
+  stretch(s, 'figure4', 30);
   return s.map(x => ({ ...x, lib: 'stretch' }));
 }
 
 export function dayStretchSteps(day, tight) {
   const s = [];
-  stretch(s, 'calfwall', 20);
-  stretch(s, 'soleuswall', 20);
+  calves(s, 20);
   stretch(s, 'hipflexor', 30);
   stretch(s, 'figure4', 30);
-  s.push({ kind: 'stretch', ex: 'catcamel', sec: 40, voice: 'next', beep: true, label: '6 slow reps' });
+  s.push({ kind: 'ready', ex: 'catcamel', sec: GET_IN, voice: 'next', label: 'Onto hands and knees' });
+  s.push({ kind: 'stretch', ex: 'catcamel', sec: 40, voice: null, beep: true, label: '6 slow reps' });
   stretch(s, 'sidereach', 30, { side: tight || 'left', sec: 15 });
   stretch(s, DAYS[day].stretch, 30);
   return s.map(x => ({ ...x, lib: 'stretch' }));

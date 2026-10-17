@@ -31,6 +31,12 @@ export const CLIPS = {
   switch: 'Switch sides.',
   next: 'Next exercise.',
   restover: 'Rest over. Next set.',
+  bikewarm: 'Warm up. Easy spin.',
+  bikecool: 'Cool down. Easy spin.',
+  easy: 'Easy. Spin it out.',
+  steady: 'Steady pace.',
+  strong: 'Strong. Pick it up.',
+  hard: 'Hard. Big effort.',
 };
 
 const RATE = 22050;
