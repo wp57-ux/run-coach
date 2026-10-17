@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run Coach figures</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: #0c0e0d; color: #eef2ea; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.note { margin: 0 0 16px; opacity: .6; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cell, 180px), 1fr)); gap: 12px; }
+  .cell { background: #151917; border: 1px solid #222824; border-radius: 10px; padding: 8px 8px 6px; }
+  .cell .id { font: 12px/1.2 ui-monospace, Consolas, monospace; opacity: .75; margin-top: 4px; text-align: center; }
+
+  /* Same CSS the app uses for figures */
+  .fig { width: 100%; height: auto; color: #eef2ea; display: block; }
+  .fig .p { fill: none; stroke: currentColor; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  .fig .h { fill: currentColor; stroke: none; }
+  .fig .e { fill: none; stroke: currentColor; stroke-opacity: .38; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .fig .ef { fill: currentColor; fill-opacity: .12; stroke: none; }
+  .fig .a { fill: none; stroke: #c9f23a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .fig .ah { fill: #c9f23a; stroke: none; }
+  .fig .f { stroke: currentColor; stroke-opacity: .2; stroke-width: 2; }
+</style>
+</head>
+<body>
+<h1>Run Coach figures</h1>
+<p class="note">Dev preview of js/drawings.js. URL options: ?cell=300 for bigger cells, ?ids=curlup,birddog to show only some.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+  import { FIGURES, figure } from '../js/drawings.js';
+  const q = new URLSearchParams(location.search);
+  const cell = q.get('cell');
+  if (cell) document.documentElement.style.setProperty('--cell', `${parseInt(cell, 10)}px`);
+  const only = q.get('ids') ? q.get('ids').split(',') : null;
+  const grid = document.getElementById('grid');
+  grid.innerHTML = Object.keys(FIGURES)
+    .filter(id => !only || only.includes(id))
+    .map(id => `<div class="cell">${figure(id)}<div class="id">${id}</div></div>`)
+    .join('');
+</script>
+</body>
+</html>
