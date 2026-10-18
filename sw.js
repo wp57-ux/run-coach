@@ -1,6 +1,8 @@
 // Offline support: the whole app is cached on first visit so it works at the
 // gym without signal. Bump VERSION whenever you publish changes.
-const VERSION = 'run-coach-v4';
+// Fuel Coach shares this website (and its cache storage), so only caches
+// named run-coach-* are ever touched here.
+const VERSION = 'run-coach-v5';
 const FONT_CACHE = 'run-coach-fonts';
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover',
@@ -21,7 +23,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== VERSION && k !== FONT_CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('run-coach') && k !== VERSION && k !== FONT_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -30,7 +32,7 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin === self.location.origin) {
+  if (url.origin === self.location.origin && url.href.startsWith(self.registration.scope)) {
     e.respondWith(DEV ? networkFirst(req) : staleWhileRevalidate(req, e));
   } else if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     e.respondWith(cacheFirst(req));
