@@ -10,11 +10,13 @@ and lifts are stored only on your phone.
 - 12 stages from 15 minutes steady up to 35 minutes strong, non-stop, with
   tempo and 1-minute hard intervals in between. Stages unlock after two green
   rides in a row, repeat on amber, and drop back on red
-- Targets come from your steady power, set on the first (setup) ride: easy 60%,
-  steady 100%, strong 115%, hard 135%. Rides that feel easy add 5 W, and hard
-  ones take 5 W off. Without watts, you ride by feel (talk test)
-- Calories from the ACSM leg-cycling equation (or typical rates per effort zone
-  when the bike shows no watts)
+- Targets in resistance levels (the default, ridden at 80–90 rpm), watts, or by
+  feel. Your steady level or power is set on the first (setup) ride. On levels,
+  easy is 4 below steady, strong 2 above and hard 4 above; on watts they're 60%,
+  100%, 115% and 135%. Rides that feel easy move you up a level (or 5 W), and
+  hard ones move you down
+- Calories from the ACSM leg-cycling equation, typical rates per effort zone
+  when the bike shows no watts, or the bike's own number if you type it in
 
 **Run (treadmill)**
 
@@ -30,10 +32,11 @@ and lifts are stored only on your phone.
 
 **Strength (after the run, or on its own)**
 
-- Three whole-body days (A → B → C) built from machines and dumbbells, with
-  push/pull supersets to fit about 28 minutes
-- A guided back and shoulder primer (McGill's curl-up, side plank and bird dog,
-  plus cable external rotations) and guided cooldown stretches, with voice cues
+- Three whole-body days (A → B → C) built from machines and dumbbells you've
+  approved, done as straight sets (every set of one exercise, then the next) in
+  about 28 minutes. The screen shows "Set 1 of 3" and what comes next
+- A guided back and shoulder primer (front plank, McGill's side plank and bird
+  dog, plus cable external rotations) and guided cooldown stretches, with voice cues
 - Every exercise shows a simple drawing, a form cue and a "why it's good for
   you" line
 - Setup sessions find your starting weights from "how many more could you have

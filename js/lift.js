@@ -103,30 +103,38 @@ export function resolveItem(state, orig, st) {
 export const LEG = new Set(['legpress', 'calfpress', 'hipthrust', 'legcurl', 'splitsquat', 'hipabd', 'seatedcalf', 'legext',
   'slcalf', 'slcalfbent', 'glutebridge', 'lyingcurl', 'sidelyingraise', 'rdl', 'bss']);
 
+export const REST_CHOICES = [60, 90, 120];
+export const mainRest = state => (REST_CHOICES.includes(state.lift.rest) ? state.lift.rest : 90);
+
+// One block per exercise, done as straight sets. A trimmed day (long ride or
+// run first) drops the optional extras and does 2 sets instead of 3.
 export function buildLift(state, st, { day = st.day, trim = false, noLegs = false } = {}) {
   const p2 = st.phase2 ? PHASE2[day] || {} : {};
   const blocks = [];
-  for (const b of DAYS[day].blocks) {
-    if (trim && (b.finisher || b.optional)) continue;
-    const items = [];
-    for (const t of b.items) {
-      const orig = p2[t] || t;
-      const ex = resolveItem(state, orig, st);
-      if (ex && noLegs && LEG.has(ex)) continue;
-      if (ex && !items.some(i => i.ex === ex)) items.push({ orig, ex });
-    }
-    if (!items.length) continue;
-    let sets = trim ? b.sets - 1 : b.sets;
-    blocks.push({ key: b.key, items, sets, rest: b.rest, finisher: !!b.finisher, optional: !!b.optional });
+  for (const t of DAYS[day].list) {
+    if (trim && t.optional) continue;
+    const orig = p2[t.ex] || t.ex;
+    const ex = resolveItem(state, orig, st);
+    if (!ex || (noLegs && LEG.has(ex)) || blocks.some(b => b.items[0].ex === ex)) continue;
+    const sets = trim ? Math.min(t.sets, 2) : t.sets;
+    // "Stay on the machine" only holds if the exercise before is still the one it follows.
+    const prev = DAYS[day].list[DAYS[day].list.indexOf(t) - 1];
+    const same = t.same && orig === t.ex && ex === t.ex && blocks.at(-1)?.items[0].ex === prev?.ex ? t.same : null;
+    blocks.push({ key: blocks.length + 1, items: [{ orig, ex }], sets, rest: sets >= 3 ? mainRest(state) : 60, optional: !!t.optional, same });
   }
   return { day, blocks };
 }
 
-// Total working sets, for a quick "≈ min" estimate.
-export function liftMinutes(plan) {
-  let sets = 0;
-  for (const b of plan.blocks) if (!b.optional) sets += b.sets * b.items.length;
-  return Math.round(sets * 1.55 + 3);
+// About 45 s a set, the rests in between, and a minute and a half to move to
+// the next machine (half a minute when you stay on the same one).
+export function liftMinutes(plan, { optional = false } = {}) {
+  let min = 0;
+  for (const b of plan.blocks) {
+    if (b.optional && !optional) continue;
+    const n = b.sets * b.items.length;
+    min += n * 0.75 + (n - 1) * b.rest / 60 + (b.same ? 0.5 : 1.5);
+  }
+  return Math.round(min);
 }
 
 // ---- weights ----------------------------------------------------------------
@@ -200,10 +208,10 @@ export function primerSteps({ weak, test, warm }) {
   const sideName = { left: 'Left', right: 'Right' };
 
   if (warm) s.push({ kind: 'warm', ex: 'warm', sec: 300, voice: 'next', beep: true, label: 'Bike or brisk treadmill walk' });
-  s.push(ready('curlup', null));
+  s.push(ready('plank', null));
   [3, 2, 1].forEach((n, k) => {
-    if (k) s.push({ kind: 'rest', ex: 'curlup', sec: 10, label: 'Switch the bent knee' });
-    holds(s, 'curlup', n, null, `Set ${k + 1}`);
+    if (k) s.push({ kind: 'rest', ex: 'plank', sec: 8, label: 'Short rest, knees down' });
+    holds(s, 'plank', n, null, `Set ${k + 1}`);
   });
 
   if (test) {
@@ -280,8 +288,6 @@ export function dayStretchSteps(day, tight) {
   calves(s, 20);
   stretch(s, 'hipflexor', 30);
   stretch(s, 'figure4', 30);
-  s.push({ kind: 'ready', ex: 'catcamel', sec: GET_IN, voice: 'next', label: 'Onto hands and knees' });
-  s.push({ kind: 'stretch', ex: 'catcamel', sec: 40, voice: null, beep: true, label: '6 slow reps' });
   stretch(s, 'sidereach', 30, { side: tight || 'left', sec: 15 });
   stretch(s, DAYS[day].stretch, 30);
   return s.map(x => ({ ...x, lib: 'stretch' }));

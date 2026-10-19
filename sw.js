@@ -1,9 +1,11 @@
 // Offline support: the whole app is cached on first visit so it works at the
 // gym without signal. Bump VERSION whenever you publish changes.
-// Fuel Coach shares this website (and its cache storage), so only caches
-// named run-coach-* are ever touched here.
-const VERSION = 'run-coach-v5';
-const FONT_CACHE = 'run-coach-fonts';
+// Fuel Coach shares this website (and its cache storage), so only caches with
+// this app's own prefix are ever touched here. The test copy (run-coach-test)
+// uses its own prefix, so the two never clear each other's caches.
+const NS = self.location.pathname.includes('-test/') ? 'rctest' : 'run-coach';
+const VERSION = `${NS}-v6`;
+const FONT_CACHE = `${NS}-fonts`;
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover',
   'bikewarm', 'bikecool', 'easy', 'steady', 'strong', 'hard'];
@@ -23,7 +25,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k.startsWith('run-coach') && k !== VERSION && k !== FONT_CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith(NS) && k !== VERSION && k !== FONT_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

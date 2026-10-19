@@ -5,6 +5,7 @@
 export const FIGURES = {
   // Back and shoulder primer
   curlup: `<line class="f" x1="10" y1="118" x2="190" y2="118"/><path class="p" d="M168 104L166 113L134 113L100 112L116 82L128 112L138 115M100 112L57 104L70 114L86 111"/><circle class="h" cx="45" cy="99" r="8"/><path class="a" d="M70 97Q68 87 58 82"/><path class="ah" d="M51 78L60 78L56 86Z"/>`,
+  plank: `<line class="f" x1="10" y1="118" x2="190" y2="118"/><path class="p" d="M28 115L34 113L130 88L130 113L154 113"/><circle class="h" cx="143" cy="82" r="8"/><path class="a" d="M80 98L80 84"/><path class="ah" d="M80 76L85 84L75 84Z"/>`,
   sideplank: `<line class="f" x1="10" y1="118" x2="190" y2="118"/><path class="p" d="M40 115L60 114L93 103L134 88L134 114L158 114M134 88L112 78L96 94"/><circle class="h" cx="147" cy="85" r="8"/><path class="a" d="M79 97L79 81"/><path class="ah" d="M79 73L84 81L74 81Z"/>`,
   birddog: `<line class="f" x1="10" y1="118" x2="190" y2="118"/><path class="p" d="M45 114L74 114L74 83L113 77L104 114M14 95L15 87L43 85L74 83M113 77L135 70L156 63"/><circle class="h" cx="124" cy="87" r="8"/><path class="a" d="M161 62L170 59"/><path class="ah" d="M178 57L172 64L169 54Z"/>`,
   extrot: `<line class="f" x1="10" y1="118" x2="190" y2="118"/><path class="e" d="M180 118L180 8M61 44L61 56L180 56"/><path class="p" d="M76 115L82 113L92 64L102 113L108 115M92 30L92 64M61 50L79 50L79 30L105 30L106 50L106 68"/><circle class="h" cx="92" cy="17" r="8"/><path class="a" d="M86 63Q75 78 63 65"/><path class="ah" d="M57 59L66 62L59 69Z"/>`,

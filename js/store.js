@@ -1,8 +1,13 @@
 // Everything lives in this phone's localStorage. Nothing is sent anywhere.
 
-const KEY = 'runcoach.v1';
-const ACTIVE = 'runcoach.active';
-const LIFT = 'runcoach.lift';
+// The test copy (…/run-coach-test/) keeps its own data under its own names,
+// starting from a copy of your real data, so trying things out never touches
+// your real log.
+export const TEST = typeof location !== 'undefined' && location.pathname.includes('-test/');
+const NS = TEST ? 'runcoachtest' : 'runcoach';
+const KEY = `${NS}.v1`;
+const ACTIVE = `${NS}.active`;
+const LIFT = `${NS}.lift`;
 
 export const DEFAULTS = {
   version: 1,
@@ -17,11 +22,13 @@ export const DEFAULTS = {
   cardio: 'bike',
   sessions: [],
   overrides: [],
-  // watts = the bike shows watts; overrides = stage or power you set by hand
-  bike: { watts: true, startStage: 1, overrides: [] },
+  // unit = what the bike's targets are in: 'level' (resistance level at
+  // 80–90 rpm), 'watts', or 'feel'. overrides = stage or steady value you set by hand
+  bike: { unit: 'level', startStage: 1, overrides: [] },
   // strength: next = a day you picked by hand; swaps = your exercise swaps;
-  // notes = machine notes; phase2 = null (not offered yet), true or false
-  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 75 },
+  // notes = machine notes; phase2 = null (not offered yet), true or false;
+  // rest = seconds between sets of the 3-set exercises
+  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 90 },
   lifts: [],
   planks: [],
 };
@@ -38,7 +45,7 @@ function merge(base, saved) {
 
 export function load() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) || (TEST ? localStorage.getItem('runcoach.v1') : null);
     if (raw) return merge(clone(DEFAULTS), JSON.parse(raw));
   } catch (e) {
     console.warn('Could not read saved data', e);

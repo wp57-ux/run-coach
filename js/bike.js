@@ -1,5 +1,6 @@
-// The bike plan: 12 stages you unlock with green rides, and power targets
-// that grow with you. Same traffic lights as the runs (plan.js).
+// The bike plan: 12 stages you unlock with green rides, and targets that
+// grow with you, in watts or in resistance levels. Same traffic lights as the
+// runs (plan.js).
 import { DAY, finalColor, dayStart, daysBetween } from './plan.js';
 import { kgOf } from './calories.js';
 
@@ -7,8 +8,15 @@ export const BIKE_MAX = 12;
 export const WARM_MIN = 5;
 export const COOL_MIN = 3;
 const LAYOFF_DAYS = 10;
-const POWER_STEP = 5;
-const MIN_POWER = 30;
+
+// What your targets are in. "power" below means your steady value in that
+// unit: watts, or a level ridden at a steady 80–90 rpm. Bikes without either
+// are ridden by feel (no steady value).
+export const UNITS = {
+  watts: { step: 5, min: 30, max: 400, short: 'W' },
+  level: { step: 1, min: 1, max: 30, short: 'level' },
+};
+export const sessionUnit = s => s.unit || (s.watts ? 'watts' : 'feel');
 
 // Targets are a share of your steady power. met = fallback calorie rate for
 // bikes that don't show watts (Compendium of Physical Activities).
@@ -51,6 +59,14 @@ export const zoneOf = type => (type === 'warmup' || type === 'cooldown' ? E : ty
 
 export const zoneWatts = (zone, power) => (power ? Math.max(20, Math.round(power * ZONES[zone].pct / 5) * 5) : null);
 
+// On levels: at a steady cadence a level is roughly 15 W, so these steps
+// match the watts zones (easy 60%, strong 115%, hard 135% of steady).
+const LEVEL_STEP = { easy: -4, steady: 0, strong: 2, hard: 4 };
+export function zoneTarget(zone, power, unit = 'watts') {
+  if (!power) return null;
+  return unit === 'level' ? Math.max(1, power + LEVEL_STEP[zone]) : zoneWatts(zone, power);
+}
+
 export const isWork = type => type === S || type === ST || type === H;
 
 export function bikeTotals(segs) {
@@ -84,6 +100,8 @@ export const planSecByType = segs => segs.reduce((a, s) => ({ ...a, [s.type]: (a
 // a ride always leaves the stage and power consistent.
 export function bikeProgression(state, now = Date.now()) {
   const b = state.bike;
+  const unit = b.unit || 'level';
+  const u = UNITS[unit];
   const events = [
     ...(b.overrides || []).map(o => ({ t: Date.parse(o.at), o })),
     ...state.sessions.filter(s => s.mode === 'bike').map(s => ({ t: Date.parse(s.at), s })),
@@ -98,25 +116,27 @@ export function bikeProgression(state, now = Date.now()) {
   for (const e of events) {
     if (e.o) {
       if (e.o.stage) { stage = e.o.stage; streak = 0; }
-      if ('power' in e.o) power = e.o.power;
+      if ('power' in e.o && (e.o.unit || 'watts') === unit) power = e.o.power;
       continue;
     }
     const s = e.s;
     if (lastT !== null && e.t - lastT > LAYOFF_DAYS * DAY) { stage = Math.max(1, stage - 1); streak = 0; }
     lastT = e.t;
-    if (s.setPower) power = s.setPower;
+    // Rides logged in another unit still count for stages, not for the steady value.
+    const same = !!u && sessionUnit(s) === unit;
+    if (same && s.setPower) power = s.setPower;
     const c = finalColor(s);
     if (c === 'green') {
       reds = 0;
       streak++;
-      if (s.effort === 'easy' && power && !s.setPower) power += POWER_STEP;
+      if (same && s.effort === 'easy' && power && !s.setPower) power = Math.min(u.max, power + u.step);
       if (streak >= 2) {
         if (stage < BIKE_MAX) { stage++; streak = 0; } else goal = true;
       }
     } else if (c === 'amber') {
       reds = 0;
       streak = 0;
-      if (s.effort === 'hard' && power && !s.setPower) power = Math.max(MIN_POWER, power - POWER_STEP);
+      if (same && s.effort === 'hard' && power && !s.setPower) power = Math.max(u.min, power - u.step);
     } else if (c === 'red') {
       reds++;
       lastRedT = e.t;
@@ -132,7 +152,7 @@ export function bikeProgression(state, now = Date.now()) {
     streak = 0;
     layoff = true;
   }
-  return { stage, streak, reds, goal, layoff, lastT, lastRedT, power, powers };
+  return { stage, streak, reds, goal, layoff, lastT, lastRedT, power: u ? power : null, powers: u ? powers : [], unit };
 }
 
 // The bike is easy on tendons, so riding on back-to-back days is fine.

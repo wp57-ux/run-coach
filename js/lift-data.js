@@ -195,31 +195,41 @@ export const EX = {
   },
 };
 
-// Superset A1/A2, then B1/B2, then a lighter finisher pair.
+// Straight sets: every set of one exercise, then the next. No supersets (a
+// busy gym), except back-to-back on the same machine. Every exercise here was
+// approved by you on Oct 19. 3-set exercises rest 90 s (Settings), 2-set ones 60 s.
+// same = stays on the machine from the exercise before.
 export const DAYS = {
   A: {
     stretch: 'doorchest',
-    blocks: [
-      { key: 'A', items: ['chestpress', 'csrow'], sets: 3, rest: 75 },
-      { key: 'B', items: ['legpress', 'latraise'], sets: 3, rest: 75 },
-      { key: 'F', items: ['calfpress', 'pallof'], sets: 2, rest: 45, finisher: true },
+    list: [
+      { ex: 'chestpress', sets: 3 },
+      { ex: 'csrow', sets: 3 },
+      { ex: 'legpress', sets: 3 },
+      { ex: 'calfpress', sets: 2, same: 'Stay on the leg press' },
+      { ex: 'latraise', sets: 2 },
     ],
   },
   B: {
     stretch: 'latstretch',
-    blocks: [
-      { key: 'A', items: ['shoulderpress', 'pulldown'], sets: 3, rest: 75 },
-      { key: 'B', items: ['hipthrust', 'facepull'], sets: 3, rest: 75 },
-      { key: 'F', items: ['legcurl', 'suitcase'], sets: 2, rest: 45, finisher: true },
+    list: [
+      { ex: 'shoulderpress', sets: 3 },
+      { ex: 'pulldown', sets: 3 },
+      { ex: 'legcurl', sets: 3 },
+      { ex: 'facepull', sets: 2 },
+      { ex: 'suitcase', sets: 2 },
     ],
   },
   C: {
     stretch: 'hamstrap',
-    blocks: [
-      { key: 'A', items: ['pushup', 'cablerow'], sets: 3, rest: 75 },
-      { key: 'B', items: ['splitsquat', 'legcurl'], sets: 3, rest: 75 },
-      { key: 'F', items: ['hipabd', 'seatedcalf'], sets: 2, rest: 45, finisher: true },
-      { key: 'X', items: ['hammercurl', 'pushdown'], sets: 2, rest: 45, optional: true },
+    list: [
+      { ex: 'pushup', sets: 3 },
+      { ex: 'cablerow', sets: 3 },
+      { ex: 'splitsquat', sets: 2 },
+      { ex: 'hipabd', sets: 2 },
+      { ex: 'seatedcalf', sets: 2 },
+      { ex: 'hammercurl', sets: 2, optional: true },
+      { ex: 'pushdown', sets: 2, optional: true },
     ],
   },
 };
@@ -231,8 +241,6 @@ export const PHASE2 = {
   C: { splitsquat: 'bss' },
 };
 
-export const BLOCK_LABEL = { A: 'Superset A', B: 'Superset B', F: 'Finisher', X: 'If time allows' };
-
 // ---- primer ----------------------------------------------------------------
 
 export const PRIMER = {
@@ -241,6 +249,12 @@ export const PRIMER = {
     cue: '5 minutes on the bike or a brisk treadmill walk, easy enough to chat.',
     why: 'Warms your muscles and joints up before any weight goes on.',
   },
+  plank: {
+    name: 'Front plank', fig: 'plank',
+    cue: 'On your elbows and toes, elbows under your shoulders. Squeeze your glutes and brace like someone’s about to poke your belly. Body in one straight line, no sagging hips.',
+    why: 'Trains the front of your core to hold your trunk stiff, which protects your low back, with no strain on your neck.',
+  },
+  // No longer in the primer (Oct 19): kept so old sessions still display.
   curlup: {
     name: 'Curl-up', fig: 'curlup',
     cue: 'On your back, one knee bent, hands under your low back. Lift your head and shoulders just off the floor, chin tucked. Switch the bent knee each set.',
