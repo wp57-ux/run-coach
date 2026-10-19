@@ -148,6 +148,21 @@ export function history(state, ex) {
     .filter(h => h.sets.length);
 }
 
+// Estimated one-rep max (Epley): weight × (1 + reps / 30).
+export const e1rm = s => s.w * (1 + s.reps / 30);
+
+// When the last set fell far below the best one (going all-out on set 1, or
+// old supersets), the last weight undersells you. Restart from the best set,
+// at a weight you could lift for the top of the range with about 3 reps left.
+const DROP_OFF = 0.85;
+function fromBest(sets, hi, inc) {
+  const best = sets.reduce((a, s) => (e1rm(s) > e1rm(a) ? s : a));
+  const last = sets.at(-1);
+  if (!(e1rm(last) < e1rm(best) * DROP_OFF)) return null;
+  const w = roundTo(e1rm(best) / (1 + (hi + 3) / 30), inc);
+  return w > last.w ? Math.min(w, best.w) : null;
+}
+
 export function target(state, ex, st) {
   const e = EX[ex];
   const [lo, hi] = e.reps;
@@ -165,6 +180,9 @@ export function target(state, ex, st) {
   // Green: anything can go up. Amber: everything except lifts that load your back.
   const backOk = st.backColor === 'green' || (st.backColor === 'amber' && e.back !== 'load');
   const shoulderOk = !e.press || st.shoulders === 'fine';
+  // Plain weight stacks and dumbbells only: not bar notches or assisted machines.
+  const best = e.kind !== 'level' && dir === 1 && backOk && shoulderOk ? fromBest(last, hi, inc) : null;
+  if (best) return { ...base, w: best, reps: hi, change: 'best' };
   if (allTop && backOk && shoulderOk) return { ...base, w: roundTo(w + inc * dir, inc), change: 'up' };
   if (allTop) return { ...base, change: 'held' };
   if (anyLow) return { ...base, w: roundTo(w - inc * dir, inc), change: 'down' };

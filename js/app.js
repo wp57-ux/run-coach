@@ -1465,7 +1465,7 @@ function liftHTML() {
   else if (e.kind === 'reps') tgt = `Each set: <b>${range}</b>`;
   else {
     const held = t.change === 'held' ? (e.press && ls.st.shoulders !== 'fine' ? 'shoulders' : 'back') : '';
-    const tag = t.change === 'up' ? ' <span class="up">↑ up from last time</span>' : t.change === 'down' ? ' <span class="dn">↓ eased off</span>' : held ? ` <span class="held">held for your ${held}</span>` : '';
+    const tag = t.change === 'up' ? ' <span class="up">↑ up from last time</span>' : t.change === 'best' ? ' <span class="up">↑ based on your best set</span>' : t.change === 'down' ? ' <span class="dn">↓ eased off</span>' : held ? ` <span class="held">held for your ${held}</span>` : '';
     tgt = `Each set: <b>${range}</b>${extraTrip} at <b>${fmtW(ex, t.w)}</b>${tag}`;
   }
   const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
