@@ -63,6 +63,16 @@ export function save(state) {
   }
 }
 
+// Test copy only: start over from a fresh copy of your real data.
+export function refreshTestCopy() {
+  if (!TEST) return;
+  try {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(ACTIVE);
+    localStorage.removeItem(LIFT);
+  } catch {}
+}
+
 export function wipe() {
   try {
     localStorage.removeItem(KEY);

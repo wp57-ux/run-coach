@@ -550,6 +550,10 @@ function settingsHTML() {
   const prog = bike ? Bike.bikeProgression(state) : progression(state);
   return `
     ${headerHTML('Settings')}
+    ${store.TEST ? `<section class="group"><h2>Test copy</h2>
+      <p class="note">Nothing here touches your real Run Coach. Refresh to try new things with your latest real rides and lifts.</p>
+      <button class="btn wide" data-act="test-refresh">Refresh from my real data</button>
+    </section>` : ''}
     <section class="group"><h2>You</h2>
       <div class="seg">
         <button data-act="units" data-v="imperial" aria-pressed="${imp()}">mph · lb · mi</button>
@@ -1744,6 +1748,52 @@ function topOf(id, sets) {
   return isLevel(id) || e.dir === -1 ? -Math.min(...ws) : Math.max(...ws);
 }
 
+const SHORT = { chestpress: 'chest press', csrow: 'row', cablerow: 'cable row', shoulderpress: 'shoulder press', pulldown: 'pulldown' };
+const capFirst = s => s[0].toUpperCase() + s.slice(1);
+
+// Pulling vs pushing, left vs right side, and lifts that are slipping.
+function weakSpotsHTML() {
+  if (!state.lifts.length) return '';
+  const w = Lift.weakSpots(state);
+  const items = [];
+  for (const p of w.pairs) {
+    const pct = Math.round(p.ratio * 100);
+    const tone = pct >= 95 ? 'green' : 'amber';
+    const pull = SHORT[p.pull.ex], push = SHORT[p.push.ex];
+    const status = pct >= 95 ? 'Balanced.' : pct >= 85 ? 'Pulling is a little behind.' : 'Pulling is behind.';
+    items.push(`<li><i class="dot ${tone}"></i><div>
+      <b>${capFirst(pull)} vs ${push}</b>
+      <small>Your ${pull} is <b>${pct}%</b> of your ${push}. ${status}${pct >= 95 ? '' : ' Aim for 100% or more.'}</small>
+      <div class="wsbar ${tone}"><i style="width:${Math.min(pct, 130) / 1.3}%"></i><em></em></div>
+      <small class="est">Estimated max: ${Math.round(p.pull.e1)} vs ${Math.round(p.push.e1)} ${wUnit()}</small>
+    </div></li>`);
+  }
+  if (w.plank) {
+    const ok = w.plank.gap <= 5;
+    items.push(`<li><i class="dot ${ok ? 'green' : 'amber'}"></i><div>
+      <b>Side plank, left vs right</b>
+      <small>${ok ? 'Within 5%: balanced.' : `Your ${w.plank.weak} side is <b>${w.plank.gap}%</b> weaker. Goal: within about 5%. The primer gives it an extra set every lift.`}</small>
+    </div></li>`);
+  }
+  const by = t => Object.keys(w.trends).filter(id => w.trends[id] === t).map(id => esc(exName(id)));
+  const down = by('down'), up = by('up'), flat = by('flat');
+  if (down.length) {
+    items.push(`<li><i class="dot red"></i><div><b>Slipping</b>
+      <small>${down.join(', ')}: two sessions in a row under your best. Usually sleep, a long day or too little protein. If it keeps going, lower the weight for a week.</small></div></li>`);
+  }
+  if (up.length || flat.length) {
+    items.push(`<li><i class="dot green"></i><div><b>${up.length ? 'Climbing' : 'Holding'}</b>
+      <small>${up.length ? `${up.join(', ')}: new best weight.` : ''}${up.length && flat.length ? ' ' : ''}${flat.length ? `${flat.join(', ')}: holding steady, which counts as a win while you lose weight.` : ''}</small></div></li>`);
+  }
+  const behind = w.pairs.some(p => p.ratio < 0.95);
+  return `<section class="group"><h2>Weak spots</h2>
+    ${items.length ? `<ul class="ws">${items.join('')}</ul>` : ''}
+    ${behind ? '<p class="note" style="margin-top:10px">To close the gap: your plan already pulls three times a week (row, pulldown, face pull), so push those weights up first. If pulling is still behind in a month, an extra set of rows is the next step.</p>' : ''}
+    ${!Object.keys(w.trends).length ? '<p class="note" style="margin-top:10px">Climbing, holding or slipping shows up after your second session of each exercise.</p>' : ''}
+    <p class="note">Estimated max = weight × (1 + reps ÷ 30), from your best set in the last 4 weeks. Machines differ, so compare yourself with yourself.</p>
+  </section>`;
+}
+
 function strengthHTML() {
   const lifts = [...state.lifts].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   const pk = state.planks.at(-1), first = state.planks[0];
@@ -1779,6 +1829,7 @@ function strengthHTML() {
   }).join('');
 
   return `
+    ${weakSpotsHTML()}
     <section class="group"><h2>Side plank balance</h2>${plank}</section>
     <section class="group"><h2>Strength</h2>
       ${exRows ? `<ul class="exlist">${exRows}</ul><p class="note" style="margin-top:10px">Lines show your best set per session. Holding steady while you lose weight counts as a win.</p>` : '<p class="note">No lifts yet. Your first one will show up here.</p>'}
@@ -2115,6 +2166,14 @@ const actions = {
     persist();
     render();
     toast(isBike() ? 'Cardio: <b>bike</b>' : 'Cardio: <b>treadmill run</b>');
+  },
+
+  async 'test-refresh'() {
+    const ok = await ask('Refresh the test copy?', 'It starts over from a copy of your real data. Anything you did in the test copy is dropped. Your real Run Coach isn’t touched.',
+      [{ label: 'Cancel', value: false }, { label: 'Refresh', value: true, cls: 'primary' }]);
+    if (!ok) return;
+    store.refreshTestCopy();
+    location.reload();
   },
 
   'bike-unit'(el) {

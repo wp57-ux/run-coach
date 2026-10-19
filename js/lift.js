@@ -205,6 +205,68 @@ export function setupNext(ex, w, rir, units) {
   return w;
 }
 
+// ---- weak spots -------------------------------------------------------------
+
+// Pulling vs pushing on matching machines. A rule of thumb from shoulder
+// rehab is to keep pulling at least as strong as pushing. It isn't a tested
+// cut-off, and machines differ, so watch your own trend.
+export const PAIRS = [
+  { push: ['chestpress'], pull: ['csrow', 'cablerow'] },
+  { push: ['shoulderpress'], pull: ['pulldown'] },
+];
+const RECENT_DAYS = 28;
+const plainWeight = id => EX[id] && !EX[id].kind && (EX[id].dir || 1) === 1;
+
+// Your best estimated max for any of these exercises over the last 4 weeks
+// (or from your latest session, if that's older).
+export function bestE1(state, ids, now = Date.now()) {
+  let best = null;
+  for (const id of ids.filter(plainWeight)) {
+    const h = history(state, id);
+    if (!h.length) continue;
+    const recent = h.filter(x => now - Date.parse(x.at) <= RECENT_DAYS * DAY);
+    for (const x of recent.length ? recent : [h.at(-1)]) {
+      for (const s of x.sets) {
+        if (s.w > 0 && s.reps > 0 && (!best || e1rm(s) > best.e1)) best = { ex: id, e1: e1rm(s), set: s };
+      }
+    }
+  }
+  return best;
+}
+
+// Per exercise: the heaviest weight you lifted within the rep range, each session.
+// up = a new best; down = the last two sessions both 10% under your best before
+// them (a rough day happens; two in a row is a pattern); flat = holding.
+export function trendOf(state, id) {
+  if (!plainWeight(id)) return null;
+  const lo = EX[id].reps[0];
+  const tops = history(state, id).map(x => Math.max(0, ...x.sets.filter(s => s.reps >= lo).map(s => s.w)));
+  if (tops.length < 2) return null;
+  const last = tops.at(-1);
+  if (last > Math.max(...tops.slice(0, -1))) return 'up';
+  if (tops.length >= 3) {
+    const before = Math.max(...tops.slice(0, -2));
+    if (tops.at(-1) < before * 0.9 && tops.at(-2) < before * 0.9) return 'down';
+  }
+  return 'flat';
+}
+
+export function weakSpots(state, now = Date.now()) {
+  const pairs = PAIRS.map(p => {
+    const push = bestE1(state, p.push, now), pull = bestE1(state, p.pull, now);
+    return push && pull ? { push, pull, ratio: pull.e1 / push.e1 } : null;
+  }).filter(Boolean);
+  const pk = state.planks.at(-1);
+  const plank = pk ? { gap: plankGap(pk), weak: weakSide(state) } : null;
+  const ids = [...new Set(state.lifts.flatMap(s => (s.sets || []).map(x => x.ex)))];
+  const trends = {};
+  for (const id of ids) {
+    const t = trendOf(state, id);
+    if (t) trends[id] = t;
+  }
+  return { pairs, plank, trends };
+}
+
 export function liftKcal(sec, weight, units) {
   return Math.round(LIFT_MET * kgOf(Number(weight) || 0, units) * (Math.min(sec, 5400) / 3600));
 }

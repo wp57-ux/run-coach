@@ -632,6 +632,17 @@ legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 600; colo
 .exr { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .exr b { display: block; font-size: 14.5px; }
 .exr small { display: block; font-size: 12.5px; color: var(--ink-3); }
+.ws { list-style: none; margin: 0; padding: 0; }
+.ws li { display: grid; grid-template-columns: 12px 1fr; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.ws li .dot { margin-top: 4px; }
+.ws li > div > b { display: block; font-size: 15px; }
+.ws small { display: block; font-size: 13px; color: var(--ink-2); line-height: 1.4; margin-top: 2px; }
+.ws small b { color: var(--ink); }
+.ws small.est { color: var(--ink-3); font-size: 12px; }
+.wsbar { position: relative; height: 8px; border-radius: 99px; background: var(--ghost); margin: 9px 0 3px; }
+.wsbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; background: var(--amber); }
+.wsbar.green i { background: var(--green); }
+.wsbar em { position: absolute; left: 76.9%; top: -4px; bottom: -4px; width: 2px; border-radius: 2px; background: var(--ink-2); }
 .spark { flex: none; width: 84px; height: 28px; }
 .spark polyline { fill: none; stroke: var(--run); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .h-sets { font-size: 12.5px; color: var(--ink-3); }
