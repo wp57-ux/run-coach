@@ -283,13 +283,16 @@ function holds(out, ex, n, side, setLabel) {
   }
 }
 
-export function primerSteps({ weak, test, warm }) {
+// short = a shorter primer for days that would run past your time limit:
+// 2 holds, then 1, instead of 3-2-1.
+export function primerSteps({ weak, test, warm, short = false }) {
   const s = [];
+  const sets = short ? [2, 1] : [3, 2, 1];
   const sideName = { left: 'Left', right: 'Right' };
 
   if (warm) s.push({ kind: 'warm', ex: 'warm', sec: 300, voice: 'next', beep: true, label: 'Bike or brisk treadmill walk' });
   s.push(ready('plank', null));
-  [3, 2, 1].forEach((n, k) => {
+  sets.forEach((n, k) => {
     if (k) s.push({ kind: 'rest', ex: 'plank', sec: 8, label: 'Short rest, knees down' });
     holds(s, 'plank', n, null, `Set ${k + 1}`);
   });
@@ -302,7 +305,7 @@ export function primerSteps({ weak, test, warm }) {
     s.push({ kind: 'test', ex: 'sideplank', side: 'right', cap: 90 });
   } else {
     s.push(ready('sideplank', 'left'));
-    [3, 2, 1].forEach((n, k) => {
+    sets.forEach((n, k) => {
       if (k) s.push({ kind: 'rest', ex: 'sideplank', side: 'left', sec: 8, label: 'Next set, left side' });
       holds(s, 'sideplank', n, 'left', `${sideName.left} · set ${k + 1}`);
       s.push(ready('sideplank', 'right', 5, 'switch'));
@@ -315,7 +318,7 @@ export function primerSteps({ weak, test, warm }) {
   }
 
   s.push(ready('birddog', null));
-  [3, 2, 1].forEach((n, k) => {
+  sets.forEach((n, k) => {
     if (k) s.push({ kind: 'rest', ex: 'birddog', sec: 8, label: 'Short rest' });
     for (let i = 1; i <= n; i++) {
       if (i > 1) s.push({ kind: 'relax', ex: 'birddog', sec: 3, voice: 'switch', label: 'Back to the left arm' });

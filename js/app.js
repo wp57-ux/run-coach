@@ -14,6 +14,10 @@ import { Guide } from './guide.js';
 // The drawings are nice to have: if they ever fail to load, the app still works.
 const { figure } = await import('./drawings.js').catch(() => ({ figure: () => '' }));
 
+// Shown in Settings, so you can tell which version your phone is running.
+// Keep in step with VERSION in sw.js.
+const APP_VERSION = '9 · Oct 22';
+
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
 const LB_PER_KG = 2.20462262, KM_PER_MI = 1.609344;
@@ -28,6 +32,9 @@ const LIMITS = {
 
 let state = store.load();
 if (store.TEST) document.body.classList.add('test');
+// Oct 2026: assisted dips were logged in the push-up boxes before they had
+// their own exercise. Push-up bar notches are small numbers; assist weights aren't.
+for (const s of state.lifts) for (const x of s.sets || []) if (x.ex === 'pushup' && x.w > 25) x.ex = 'assistdip';
 let view = 'today';
 let wk = null;        // workout in progress
 let draft = null;     // finished workout awaiting its check-in
@@ -637,6 +644,9 @@ function settingsHTML() {
       <div class="field"><span>Next lift day</span>
         <div class="seg">${Lift.ORDER.map(d => `<button data-act="lift-day" data-v="${d}" aria-pressed="${d === liftCtx().day}">Day ${d}</button>`).join('')}</div>
         <small>Normally automatic: A → B → C, picking up where you left off.</small></div>
+      <div class="field"><span>Your limit for a whole gym visit</span>
+        <div class="seg">${[60, 70, 80, 90].map(v => `<button data-act="set-num" data-path="lift.maxMin" data-v="${v}" aria-pressed="${maxMin() === v}">${v} min</button>`).join('')}</div>
+        <small>Ride, primer, lift and stretch together. Over it, the lift drops to 2 sets each, then the primer and stretches get shorter.</small></div>
       <div class="field"><span>Rest between sets</span>
         <div class="seg">${Lift.REST_CHOICES.map(v => `<button data-act="set-num" data-path="lift.rest" data-v="${v}" aria-pressed="${Lift.mainRest(state) === v}">${v} s</button>`).join('')}</div>
         <small>For the 3-set exercises. The 2-set ones rest 60 s.</small></div>
@@ -658,7 +668,7 @@ function settingsHTML() {
       <button class="btn danger wide" data-act="reset">Erase everything</button>
     </section>
     ${installEvt && !isStandalone() ? `<button class="btn primary wide" data-act="install">Install app</button>` : ''}
-    <p class="foot">Run Coach · calorie and distance numbers are estimates.<br>Not medical advice. If something keeps hurting, see a physio.</p>`;
+    <p class="foot">Run Coach version ${APP_VERSION}${store.TEST ? ' (test copy)' : ''} · calorie and distance numbers are estimates.<br>Not medical advice. If something keeps hurting, see a physio.</p>`;
 }
 
 function onboardHTML() {
@@ -1190,9 +1200,25 @@ function liftCtx(now = Date.now()) {
   return st;
 }
 
+// Your whole gym visit has to fit your limit (70 min by default). If it
+// wouldn't, the lift drops to 2 sets each, then the primer and stretches get
+// shorter. Never fewer exercises.
+const CHANGE_MIN = 3;   // off the bike, water, over to the mat
+const maxMin = () => state.lift.maxMin || 70;
+
 function liftPlanFor(st, withRun) {
-  const trim = withRun && cardioCtx().totalMin > 35;
-  return { trim, plan: Lift.buildLift(state, st, { trim, noLegs: st.legsRest }) };
+  const ride = withRun ? cardioCtx().totalMin : 0;
+  let pick = null;
+  for (const o of [{ trim: false, short: false }, { trim: true, short: false }, { trim: true, short: true }]) {
+    const plan = Lift.buildLift(state, st, { trim: o.trim, noLegs: st.legsRest });
+    const primer = stepsMin(Lift.primerSteps({ weak: st.weak, test: st.plankDue, warm: !withRun, short: o.short }));
+    const stretch = stepsMin(o.short ? Lift.runStretchSteps() : Lift.dayStretchSteps(st.day, st.weak));
+    const lift = Lift.liftMinutes(plan);
+    const total = ride + (withRun ? CHANGE_MIN : 0) + primer + lift + stretch;
+    pick = { ...o, plan, ride, primer, lift, stretch, total, over: total > maxMin() };
+    if (!pick.over) break;
+  }
+  return pick;
 }
 
 function backMorningHTML(s, ago) {
@@ -1229,7 +1255,8 @@ function liftCardHTML(st, block) {
     return `<section class="lift-card done"><span class="eyebrow">Lift · Day ${st.last.day}</span><h2>Done today</h2>
       <p>${(st.last.sets || []).length} sets · back ${st.last.back}/10${c === 'pending' ? ' · back check tomorrow morning' : ` · ${c}`}</p></section>`;
   }
-  const { trim, plan } = liftPlanFor(st, true);
+  const fit = liftPlanFor(st, true);
+  const { trim, plan } = fit;
   const rows = plan.blocks.map((b, i) => `<li class="${b.optional ? 'opt' : ''}"><span class="lk">${b.optional ? '+' : i + 1}</span><span>${b.items.map(it => esc(exName(it.ex))).join(' <i>+</i> ')}${b.same ? ' <i>· same machine</i>' : ''}</span><em>${b.optional ? 'if time' : `${b.sets} sets`}</em></li>`).join('');
   const notes = [];
   if (st.reset) notes.push('<b class="r">Back reset day.</b> The primer plus seated, back-supported machines only.');
@@ -1241,14 +1268,14 @@ function liftCardHTML(st, block) {
   const setup = plan.blocks.flatMap(b => b.items).filter(i => Lift.target(state, i.ex, st).setup).length;
   if (setup) notes.push(`<b>Setup:</b> you’ll pick starting weights for ${setup} exercise${setup > 1 ? 's' : ''}.`);
   if (st.early) notes.push('First 2 weeks: finish every set with about 3 reps left in the tank.');
-  if (trim) notes.push(`Long ${isBike() ? 'ride' : 'run'} today, so the lift is trimmed to 2 sets each.`);
+  if (fit.over) notes.push(`<b class="a">About ${fit.total} min, over your ${maxMin()}.</b> Even trimmed, today’s long ${isBike() ? 'ride' : 'run'} plus a lift doesn’t fit. Running low? Do the ${isBike() ? 'ride' : 'run'} today and the lift tomorrow.`);
+  else if (fit.short) notes.push(`Trimmed to fit your ${maxMin()} min: 2 sets each, and a shorter primer and stretch.`);
+  else if (trim) notes.push(`Trimmed to fit your ${maxMin()} min: 2 sets each.`);
   const days = Lift.ORDER.map(d => `<button data-act="lift-day" data-v="${d}" aria-pressed="${d === st.day}">${d}</button>`).join('');
-  const primerMin = stepsMin(Lift.primerSteps({ weak: st.weak, test: st.plankDue }));
-  const stretchMin = stepsMin(Lift.dayStretchSteps(st.day, st.weak));
   return `<section class="lift-card">
     <div class="hero-top"><span class="eyebrow">Lift · Day ${st.day}</span><div class="daypick" role="group" aria-label="Lift day">${days}</div></div>
     <ol class="lift-list">${rows}</ol>
-    <p class="lift-meta">Primer ≈ ${primerMin} min · lift ≈ ${Lift.liftMinutes(plan)} min · stretch ≈ ${stretchMin} min</p>
+    <p class="lift-meta">${isBike() ? 'Ride' : 'Run'} ${fit.ride} + primer ${fit.primer} + lift ${fit.lift} + stretch ${fit.stretch} + ${CHANGE_MIN} between ≈ <b>${fit.total} min</b> total</p>
     ${notes.length ? `<ul class="lift-notes">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}
     <div class="lift-only"><button class="btn" data-act="lift-only" ${block ? 'disabled' : ''}>Lift only</button><small>${isBike()
       ? 'Starts with 5 min of easy spinning on the bike.'
@@ -1293,12 +1320,12 @@ function lsLoop() {
 
 function startLift(withRun) {
   const st = liftCtx();
-  const { trim, plan } = liftPlanFor(st, withRun);
+  const { trim, short, plan } = liftPlanFor(st, withRun);
   if (!plan.blocks.length) return toast('Nothing safe to lift today. Rest up.');
   const targets = {};
   for (const b of plan.blocks) for (const i of b.items) targets[i.ex] = Lift.target(state, i.ex, st);
   ls = {
-    id: uid(), day: plan.day, withRun, warm: !withRun, startedAt: Date.now(), plan, trim, noLegs: !!st.legsRest, reset: st.reset,
+    id: uid(), day: plan.day, withRun, warm: !withRun, startedAt: Date.now(), plan, trim, short, noLegs: !!st.legsRest, reset: st.reset,
     st: { backColor: st.backColor, shoulders: st.shoulders }, early: st.early,
     phase: 'primer', ptr: { b: 0, r: 0, k: 0 }, sets: [], skipped: [], setupList: [], tweak: null,
     primer: false, cooldown: false, test: st.plankDue ? {} : null, weak: st.weak, targets, next: {}, cur: null, ci: null,
@@ -1310,8 +1337,8 @@ function startLift(withRun) {
 }
 
 function startGuide(phase) {
-  const steps = phase === 'primer' ? Lift.primerSteps({ weak: ls.weak, test: !!ls.test, warm: ls.warm })
-    : ls.kind === 'stretch' ? Lift.runStretchSteps() : Lift.dayStretchSteps(ls.day, ls.weak);
+  const steps = phase === 'primer' ? Lift.primerSteps({ weak: ls.weak, test: !!ls.test, warm: ls.warm, short: !!ls.short })
+    : ls.kind === 'stretch' || ls.short ? Lift.runStretchSteps() : Lift.dayStretchSteps(ls.day, ls.weak);
   ls.phase = phase;
   restT = null;
   guide = new Guide(steps, { scale: TIME_SCALE });
@@ -1470,7 +1497,7 @@ function liftHTML() {
   else {
     const held = t.change === 'held' ? (e.press && ls.st.shoulders !== 'fine' ? 'shoulders' : 'back') : '';
     const tag = t.change === 'up' ? ' <span class="up">↑ up from last time</span>' : t.change === 'best' ? ' <span class="up">↑ based on your best set</span>' : t.change === 'down' ? ' <span class="dn">↓ eased off</span>' : held ? ` <span class="held">held for your ${held}</span>` : '';
-    tgt = `Each set: <b>${range}</b>${extraTrip} at <b>${fmtW(ex, t.w)}</b>${tag}`;
+    tgt = `Each set: <b>${range}</b>${extraTrip} at <b>${fmtW(ex, t.w)}${e.dir === -1 && !isLevel(ex) ? ' of help' : ''}</b>${tag}`;
   }
   const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
   const lastLine = [t.last ? `Last time: ${t.last.map(s => fmtSet(ex, s)).join(', ')}` : '', today.length ? `Today: ${today.join(', ')}` : ''].filter(Boolean).join(' · ');
@@ -1479,7 +1506,7 @@ function liftHTML() {
   return `<div class="ls lift">
     ${lsTopHTML(`Day ${ls.day}`)}
     <div class="ex">
-      <div class="ex-head"><span class="eyebrow">Exercise ${ls.ptr.b + 1} of ${ls.plan.blocks.length}${b.optional ? ' · extra' : ''}</span>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
+      <div class="ex-head"><span class="eyebrow">${b.optional ? 'Extra · if you have time' : `Exercise ${ls.ptr.b + 1} of ${ls.plan.blocks.filter(x => !x.optional).length}`}</span>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
       <div class="setbar"><b>Set ${ls.ptr.r + 1}</b><span>of ${b.sets}</span><span class="dots">${[...Array(b.sets)].map((_, i) => `<i class="${i < ls.ptr.r ? 'on' : i === ls.ptr.r ? 'cur' : ''}"></i>`).join('')}</span></div>
       ${b.same && ls.ptr.r === 0 ? `<p class="ex-same">${esc(b.same)}</p>` : ''}
       <div class="ex-fig">${figure(e.fig)}</div>
@@ -2148,6 +2175,7 @@ const actions = {
     view = 'today';
     render();
     window.scrollTo(0, 0);
+    applyUpdate();
   },
 
   'sheet-close'() { closeSheet(); },
@@ -2764,8 +2792,30 @@ window.addEventListener('appinstalled', () => {
   if (state.onboarded && !wk) render();
 });
 
+// Updates. An installed app can sit open in the background for days and never
+// reload, so check for a new version whenever it comes back on screen, and
+// switch to it straight away, unless you're mid-workout (then it waits).
+let updateReady = false;
+function applyUpdate() {
+  if (!updateReady || wk || ls) return;
+  updateReady = false;
+  location.reload();
+}
+
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker failed', e));
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      reg.update().catch(() => {});
+      applyUpdate();
+    });
+  }).catch(e => console.warn('Service worker failed', e));
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;   // the very first install: nothing to refresh
+    updateReady = true;
+    applyUpdate();
+  });
 }
 
 render();

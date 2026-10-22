@@ -4,7 +4,7 @@
 // this app's own prefix are ever touched here. The test copy (run-coach-test)
 // uses its own prefix, so the two never clear each other's caches.
 const NS = self.location.pathname.includes('-test/') ? 'rctest' : 'run-coach';
-const VERSION = `${NS}-v8`;
+const VERSION = `${NS}-v9`;
 const FONT_CACHE = `${NS}-fonts`;
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover',
@@ -19,7 +19,9 @@ const SHELL = [
 const DEV = ['localhost', '127.0.0.1'].includes(self.location.hostname);
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's own short-term cache, so a new version
+  // never gets stored with a file left over from the old one.
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {

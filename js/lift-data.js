@@ -75,7 +75,7 @@ export const EX = {
     why: 'Trains the side of your back to hold you upright under load. With the weight in your right hand, that’s your left side. Builds grip too.',
   },
   pushup: {
-    name: 'Push-up on a bar or bench', fig: 'pushup', kind: 'level', dir: -1, reps: [8, 15], back: 'load', safe: 'chestpress', press: true, shSafe: 'pushup', alts: ['chestpress'],
+    name: 'Push-up on a bar or bench', fig: 'pushup', kind: 'level', dir: -1, reps: [8, 15], back: 'load', safe: 'chestpress', press: true, shSafe: 'pushup', alts: ['assistdip', 'chestpress'],
     cue: 'Hands a little wider than your shoulders, elbows about 45°, body straight. At the top, push the floor away so your shoulder blades spread.',
     why: 'Chest, shoulders, triceps and core in one move. Your hands stay planted while your shoulder blades move freely, which is usually kinder to rotator cuffs than dumbbell presses.',
   },
@@ -125,6 +125,11 @@ export const EX = {
     name: 'Half-kneeling landmine press', fig: 'landmine', reps: [8, 12], perSide: true, press: true, shSafe: null, alts: ['shoulderpress'],
     cue: 'One knee down, squeeze that glute. Press the end of the bar up and forward, not straight overhead.',
     why: 'Shoulders and upper chest at an angle most rotator cuffs handle better than straight overhead.',
+  },
+  assistdip: {
+    name: 'Assisted dip machine', fig: 'assistdip', reps: [8, 12], dir: -1, press: true, shSafe: 'pushup', alts: ['pushup', 'chestpress'],
+    cue: 'Knees on the pad, hands on the dip handles, chest up. Lower until your upper arms are level with the floor, no deeper, then press up. The weight is the help: less weight is harder. Any pinch at the front of a shoulder: stop and swap to push-ups.',
+    why: 'Chest, triceps and the front of your shoulders: fuller chest, bigger arms. Stopping at level keeps the strain off your rotator cuffs.',
   },
   assistpullup: {
     name: 'Assisted pull-up machine', fig: 'assistpullup', reps: [8, 12], dir: -1, alts: ['pulldown'],
@@ -223,7 +228,7 @@ export const DAYS = {
   C: {
     stretch: 'hamstrap',
     list: [
-      { ex: 'pushup', sets: 3 },
+      { ex: 'assistdip', sets: 3 },
       { ex: 'cablerow', sets: 3 },
       { ex: 'splitsquat', sets: 2 },
       { ex: 'hipabd', sets: 2 },

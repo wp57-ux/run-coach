@@ -27,8 +27,9 @@ export const DEFAULTS = {
   bike: { unit: 'level', startStage: 1, overrides: [] },
   // strength: next = a day you picked by hand; swaps = your exercise swaps;
   // notes = machine notes; phase2 = null (not offered yet), true or false;
-  // rest = seconds between sets of the 3-set exercises
-  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 90 },
+  // rest = seconds between sets of the 3-set exercises; maxMin = your limit
+  // for a whole gym visit (ride, primer, lift and stretch)
+  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 90, maxMin: 70 },
   lifts: [],
   planks: [],
 };
