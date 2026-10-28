@@ -16,7 +16,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '9 · Oct 22';
+const APP_VERSION = '10 · Oct 27';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -1456,13 +1456,45 @@ function syncCur() {
 
 const restOf = b => b.rest ?? Lift.mainRest(state);
 
+// You can do exercises in any order: tap one in the list to do it now, or put
+// a busy machine off until later. Sets done so far always pick up where you left off.
+const doneOf = ex => ls.sets.filter(s => s.ex === ex).length;
+const blockDone = b => activeItems(b).every(i => doneOf(i.ex) >= b.sets);
+const laterList = () => (ls.later ||= []);
+const isOpen = (b, bi) => activeItems(b).length > 0 && !blockDone(b) && !laterList().includes(bi);
+
+// The next exercise to do after `from`, in plan order (wrapping round), then
+// anything you put off for later. `skip` leaves one exercise out (the one you're finishing).
+function nextOpen(from, skip = -1) {
+  const bs = ls.plan.blocks, n = bs.length;
+  for (let j = 1; j <= n; j++) {
+    const bi = (from + j) % n;
+    if (bi !== skip && isOpen(bs[bi], bi)) return bi;
+  }
+  for (const bi of laterList()) if (bi !== skip && activeItems(bs[bi]).length && !blockDone(bs[bi])) return bi;
+  return -1;
+}
+
 function nextLabel() {
-  const p = ls.ptr, blocks = ls.plan.blocks, b = blocks[p.b];
-  const items = activeItems(b);
-  if (p.k + 1 < items.length) return `Then ${exName(items[p.k + 1].ex)}`;
-  if (p.r + 1 < b.sets) return `Then rest ${restOf(b)} s`;
-  const nb = blocks.slice(p.b + 1).find(x => activeItems(x).length);
-  return nb ? `Then: ${exName(activeItems(nb)[0].ex)}` : 'Then stretch';
+  const p = ls.ptr, b = ls.plan.blocks[p.b];
+  if (doneOf(curItem().item.ex) + 1 < b.sets) return `Then rest ${restOf(b)} s`;
+  const ni = nextOpen(p.b, p.b);
+  return ni >= 0 ? `Then: ${exName(activeItems(ls.plan.blocks[ni])[0].ex)}` : 'Then stretch';
+}
+
+// Move to exercise bi (or to the stretches when bi is -1).
+function goTo(bi, restSec) {
+  ls.cur = null;
+  if (bi < 0) {
+    saveLs();
+    return startGuide('cooldown');
+  }
+  const b = ls.plan.blocks[bi];
+  ls.ptr = { b: bi, k: 0, r: doneOf(activeItems(b)[0].ex) };
+  ls.later = laterList().filter(x => x !== bi);
+  saveLs();
+  if (b.optional && !ls.optAsked) return askOptional();
+  startRest(Math.min(restSec, 60));
 }
 
 const stepperHTML = (k, label, v, unit) => `<div class="stp"><span>${label}</span>
@@ -1474,12 +1506,16 @@ const stepperHTML = (k, label, v, unit) => `<div class="stp"><span>${label}</spa
 
 function planListHTML() {
   const p = ls.ptr;
-  return `<ol class="ls-plan">${ls.plan.blocks.map((b, bi) => b.items.map((it, k) => {
-    const done = ls.sets.filter(s => s.ex === it.ex).length;
+  return `<p class="ls-plan-h">Busy machine? Tap any exercise to do it now.</p>
+    <ol class="ls-plan">${ls.plan.blocks.map((b, bi) => b.items.map(it => {
+    const done = doneOf(it.ex);
     const skipped = ls.skipped.includes(it.ex);
-    const now = bi === p.b && activeItems(b)[p.k]?.ex === it.ex && ls.phase !== 'rest';
+    const complete = done >= b.sets && !skipped;
+    const now = bi === p.b;
+    const tag = skipped ? 'skipped · tap to bring back' : laterList().includes(bi) ? 'later' : complete ? 'done' : '';
     const dots = [...Array(b.sets)].map((_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
-    return `<li class="${skipped ? 'skip' : ''}${now ? ' now' : ''}"><span class="lk">${b.optional ? '+' : bi + 1}</span><span>${esc(exName(it.ex))}</span><span class="dots">${dots}</span></li>`;
+    return `<li class="${skipped ? 'skip' : ''}${now ? ' now' : ''}${complete ? ' fin' : ''}"><button data-act="ls-goto" data-b="${bi}" ${complete || (now && ls.phase === 'lift') ? 'disabled' : ''}>
+      <span class="lk">${b.optional ? '+' : bi + 1}</span><span>${esc(exName(it.ex))}${tag ? ` <em>${tag}</em>` : ''}</span><span class="dots">${dots}</span></button></li>`;
   }).join('')).join('')}</ol>`;
 }
 
@@ -1523,6 +1559,7 @@ function liftHTML() {
       <button class="start inline" data-act="ls-done"><span>Done ✓</span><small>${esc(nextLabel())}</small></button>
       <div class="ex-tools">
         <button data-act="ls-note">${note ? 'Edit notes' : 'Machine notes'}</button>
+        <button data-act="ls-later">Machine busy: do it later</button>
         <button data-act="ls-skip">Skip exercise</button>
         <button class="tw" data-act="ls-tweak"><i></i>Something’s tweaking</button>
       </div>
@@ -1536,36 +1573,26 @@ function showLift() {
   showScreen(liftHTML());
 }
 
+// After a set: rest, then the next set, or on to the next exercise.
 function advance() {
   const p = ls.ptr, b = ls.plan.blocks[p.b];
-  p.k++;
   ls.cur = null;
-  if (p.k < activeItems(b).length) { saveLs(); return showLift(); }
   p.k = 0;
-  p.r++;
+  p.r = doneOf(curItem().item.ex);
   if (p.r < b.sets) { saveLs(); return startRest(restOf(b)); }
   nextBlock(restOf(b));
 }
 
 function nextBlock(restSec) {
-  const p = ls.ptr, blocks = ls.plan.blocks;
-  p.b++;
-  p.r = 0;
-  p.k = 0;
-  ls.cur = null;
-  while (p.b < blocks.length && !activeItems(blocks[p.b]).length) p.b++;
-  saveLs();
-  if (p.b >= blocks.length) return startGuide('cooldown');
-  if (blocks[p.b].optional && !ls.optAsked) return askOptional();
-  startRest(Math.min(restSec, 60));
+  goTo(nextOpen(ls.ptr.b, ls.ptr.b), restSec);
 }
 
 function askOptional() {
-  const opt = ls.plan.blocks.slice(ls.ptr.b).filter(x => x.optional && activeItems(x).length);
+  const opt = ls.plan.blocks.filter(x => x.optional && activeItems(x).length && !blockDone(x));
   const min = Lift.liftMinutes({ blocks: opt }, { optional: true });
   openSheet(`<h3>Got ${min} more minutes?</h3>
     <p>Optional: ${opt.map(x => esc(exName(activeItems(x)[0].ex))).join(', then ')}, ${opt[0].sets} sets each.</p>
-    <div class="sheet-btns"><button class="btn" data-act="ls-opt" data-v="0">Skip, stretch</button><button class="btn primary" data-act="ls-opt" data-v="1">Do it</button></div>`, false);
+    <div class="sheet-btns"><button class="btn" data-act="ls-opt" data-v="0">Skip them</button><button class="btn primary" data-act="ls-opt" data-v="1">Do it</button></div>`, false);
 }
 
 function startRest(sec) {
@@ -1579,12 +1606,13 @@ function restLeft() { return (restT.end - Date.now()) * TIME_SCALE; }
 
 function restHTML() {
   const { b, item } = curItem();
+  const started = doneOf(item.ex) > 0;
   return `<div class="ls rest">
     ${lsTopHTML(`Day ${ls.day}`)}
     <div class="rest-main">
       <span class="eyebrow">Rest</span>
       <div class="rest-clock" id="restClock">${fmtClock(restLeft())}</div>
-      <p class="rest-next">${ls.ptr.r === 0 && ls.ptr.k === 0
+      <p class="rest-next">${!started
         ? `Next exercise: <b>${esc(exName(item.ex))}</b> · ${b.sets} sets${b.same ? `<br>${esc(b.same)}` : ''}`
         : `Next: <b>${esc(exName(item.ex))}</b> · set ${ls.ptr.r + 1} of ${b.sets}`}</p>
       <div class="row"><button class="btn" data-act="rest-add">+15 s</button><button class="btn primary" data-act="rest-skip">Skip rest</button></div>
@@ -1612,8 +1640,8 @@ function restTick() {
 // Swap what's left of today for back- or shoulder-safe options.
 function applySafe(area) {
   const p = ls.ptr;
-  ls.plan.blocks.forEach((b, bi) => {
-    if (bi < p.b) return;
+  ls.plan.blocks.forEach(b => {
+    if (blockDone(b)) return;
     b.items = b.items.map(it => {
       const e = EX[it.ex];
       let to = it.ex;
@@ -1634,12 +1662,10 @@ function applySafe(area) {
 
 // After skipping or swapping out the current exercise, carry on from the right place.
 function afterRemoval() {
-  const p = ls.ptr, items = activeItems(ls.plan.blocks[p.b]);
-  if (!items.length) return nextBlock(0);
-  if (p.k >= items.length) {
-    p.k = items.length - 1;
-    return advance();
-  }
+  const p = ls.ptr, b = ls.plan.blocks[p.b];
+  if (!activeItems(b).length || blockDone(b)) return nextBlock(0);
+  p.k = 0;
+  p.r = doneOf(activeItems(b)[0].ex);
   saveLs();
   showLift();
 }
@@ -1850,7 +1876,7 @@ function strengthHTML() {
         <p>Next morning: ${s.morning ? MORNING_TEXT[s.morning] : s.prelim === 'red' ? 'n/a' : 'not answered yet'}</p>
         ${byEx.length ? `<p class="h-sets">${byEx.join('<br>')}</p>` : ''}
         ${s.notes ? `<p class="h-n">“${esc(s.notes)}”</p>` : ''}
-        <button class="btn ghost small" data-act="ldel" data-id="${s.id}">Delete this lift</button>
+        <div class="row" style="gap:6px"><button class="btn small" data-act="ladd" data-id="${s.id}">Add a missed exercise</button><button class="btn ghost small" data-act="ldel" data-id="${s.id}">Delete this lift</button></div>
       </div>
     </details>`;
   }).join('');
@@ -2414,6 +2440,40 @@ const actions = {
     toast('Back to the standard exercises');
   },
 
+  ladd(el) {
+    const s = state.lifts.find(x => x.id === el.dataset.id);
+    if (!s) return;
+    const day = (Lift.DAY_LIST?.(s.day) || []).map(t => t.ex);
+    const opts = [...new Set([...day, ...Object.keys(EX)])].filter(id => EX[id] && !['reps', 'carry'].includes(EX[id].kind));
+    openSheet(`<h3>Add a missed exercise</h3>
+      <p>To your Day ${s.day} lift on ${fmtDay(s.at)}. Leave rows blank if you did fewer sets.</p>
+      <label class="field"><span>Exercise</span><select id="laEx">${opts.map(id => `<option value="${id}">${esc(exName(id))}${day.includes(id) ? '' : ' (not on this day)'}</option>`).join('')}</select></label>
+      ${[1, 2, 3].map(n => `<div class="grid3 la-row"><span class="la-n">Set ${n}</span>
+        <div class="inp"><input id="laW${n}" type="number" inputmode="decimal" min="0" max="2000" placeholder="weight"><em>${wUnit()}</em></div>
+        <div class="inp"><input id="laR${n}" type="number" inputmode="numeric" min="1" max="100" placeholder="reps"><em>reps</em></div></div>`).join('')}
+      <div class="sheet-btns"><button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="ladd-save" data-id="${s.id}">Add</button></div>`);
+  },
+
+  'ladd-save'(el) {
+    const s = state.lifts.find(x => x.id === el.dataset.id);
+    if (!s) return closeSheet();
+    const ex = $('#laEx').value;
+    const sets = [];
+    for (const n of [1, 2, 3]) {
+      const wv = $(`#laW${n}`).value, rv = $(`#laR${n}`).value;
+      if (wv === '' && rv === '') continue;
+      const w = Number(wv), reps = Math.round(Number(rv));
+      if (!(w >= 0 && w <= 2000) || !(reps >= 1 && reps <= 100)) return toast(`Check set ${n}: weight and reps`);
+      sets.push({ ex, orig: ex, w, reps, r: sets.length, added: true });
+    }
+    if (!sets.length) return toast('Enter at least one set');
+    s.sets = [...(s.sets || []), ...sets];
+    persist();
+    closeSheet();
+    render();
+    toast(`Added ${sets.length} set${sets.length > 1 ? 's' : ''} of ${esc(exName(ex))}`);
+  },
+
   async ldel(el) {
     const ok = await ask('Delete this lift?', 'It’s removed from your history, and weight suggestions recalculate.',
       [{ label: 'Keep it', value: false, cls: 'primary' }, { label: 'Delete', value: true, cls: 'danger' }]);
@@ -2519,9 +2579,8 @@ const actions = {
     closeSheet();
     ls.optAsked = true;
     if (el.dataset.v === '1') return startRest(45);
-    ls.ptr.b = ls.plan.blocks.length;
-    saveLs();
-    startGuide('cooldown');
+    for (const b of ls.plan.blocks) if (b.optional) for (const i of b.items) if (!doneOf(i.ex)) ls.skipped.push(i.ex);
+    goTo(nextOpen(ls.ptr.b), 0);
   },
 
   'ls-skip'() {
@@ -2529,6 +2588,31 @@ const actions = {
     ls.skipped.push(curItem().item.ex);
     ls.cur = null;
     afterRemoval();
+  },
+
+  'ls-later'() {
+    if (!ls || ls.phase !== 'lift') return;
+    syncCur();
+    const bi = ls.ptr.b;
+    const next = nextOpen(bi, bi);
+    if (next < 0) return toast('Nothing else left to do first. This one’s next.');
+    laterList().push(bi);
+    toast(`${esc(exName(curItem().item.ex))}: later. It comes back after the others.`);
+    goTo(next, 0);
+  },
+
+  'ls-goto'(el) {
+    if (!ls || !['lift', 'rest'].includes(ls.phase)) return;
+    const bi = +el.dataset.b, b = ls.plan.blocks[bi];
+    if (!b) return;
+    if (ls.phase === 'lift') syncCur();
+    const wasSkipped = b.items.some(i => ls.skipped.includes(i.ex));
+    ls.skipped = ls.skipped.filter(x => !b.items.some(i => i.ex === x));
+    if (blockDone(b)) return ls.phase === 'rest' ? showScreen(restHTML()) : showLift();
+    if (b.optional) ls.optAsked = true;
+    restT = null;
+    if (wasSkipped) toast(`${esc(exName(b.items[0].ex))} is back on`);
+    goTo(bi, 0);
   },
 
   'ls-swap'() {

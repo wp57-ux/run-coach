@@ -267,6 +267,9 @@ export function weakSpots(state, now = Date.now()) {
   return { pairs, plank, trends };
 }
 
+// The exercises planned for a day, for the "add a missed exercise" list.
+export const DAY_LIST = day => DAYS[day]?.list || [];
+
 export function liftKcal(sec, weight, units) {
   return Math.round(LIFT_MET * kgOf(Number(weight) || 0, units) * (Math.min(sec, 5400) / 3600));
 }
