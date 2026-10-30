@@ -139,7 +139,7 @@ export function liftMinutes(plan, { optional = false } = {}) {
 
 // ---- weights ----------------------------------------------------------------
 
-export const incOf = (ex, units) => (EX[ex].kind === 'level' ? 1 : units === 'imperial' ? 5 : 2.5);
+export const incOf = (ex, units) => (EX[ex].kind === 'level' ? 1 : units === 'imperial' ? EX[ex].incLb ?? 5 : 2.5);
 const roundTo = (v, inc) => Math.max(0, Math.round(v / inc) * inc);
 
 export function history(state, ex) {
@@ -163,6 +163,11 @@ function fromBest(sets, hi, inc) {
   return w > last.w ? Math.min(w, best.w) : null;
 }
 
+// With your reps left on every set, the estimate counts what you could have
+// done: weight × (1 + (reps + reps left) / 30).
+const e1rmLeft = s => s.w * (1 + (s.reps + s.rir) / 30);
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+
 export function target(state, ex, st) {
   const e = EX[ex];
   const [lo, hi] = e.reps;
@@ -170,7 +175,7 @@ export function target(state, ex, st) {
   if (!h.length) return { setup: e.kind !== 'reps', w: null, reps: hi, last: null, change: 'new' };
   const last = h.at(-1).sets;
   const w = last.at(-1).w;
-  const base = { setup: false, last, reps: hi, w, change: 'same' };
+  const base = { setup: false, last, lastAt: h.at(-1).at, reps: hi, w, change: 'same' };
   if (e.kind === 'reps') return base;
   if (e.kind === 'carry') return base;
   const inc = incOf(ex, state.profile.units);
@@ -180,6 +185,22 @@ export function target(state, ex, st) {
   // Green: anything can go up. Amber: everything except lifts that load your back.
   const backOk = st.backColor === 'green' || (st.backColor === 'amber' && e.back !== 'load');
   const shoulderOk = !e.press || st.shoulders === 'fine';
+  if (last.every(s => s.rir != null)) {
+    const canAdd = backOk && shoulderOk;
+    const weights = last.map(s => s.w);
+    // You moved the weight around: pick one that should hold for every set,
+    // mid-range with about 2 reps left, and no heavier than you've just lifted.
+    if (e.kind !== 'level' && dir === 1 && new Set(weights).size > 1) {
+      const pick = Math.min(roundTo(mean(last.map(e1rmLeft)) / (1 + (Math.ceil((lo + hi) / 2) + 2) / 30), inc), Math.max(...weights));
+      return canAdd || pick <= w ? { ...base, w: pick, change: 'mixed' } : { ...base, change: 'held' };
+    }
+    const fewestLeft = Math.min(...last.map(s => s.rir));
+    const tooEasy = last.every(s => s.rir >= 4);
+    if ((allTop && fewestLeft >= 1) || tooEasy) {
+      return canAdd ? { ...base, w: roundTo(w + inc * dir, inc), change: 'up', easy: tooEasy } : { ...base, change: 'held' };
+    }
+    return anyLow && fewestLeft === 0 ? { ...base, w: roundTo(w - inc * dir, inc), change: 'down' } : base;
+  }
   // Plain weight stacks and dumbbells only: not bar notches or assisted machines.
   const best = e.kind !== 'level' && dir === 1 && backOk && shoulderOk ? fromBest(last, hi, inc) : null;
   if (best) return { ...base, w: best, reps: hi, change: 'best' };
@@ -265,6 +286,36 @@ export function weakSpots(state, now = Date.now()) {
     if (t) trends[id] = t;
   }
   return { pairs, plank, trends };
+}
+
+// ---- sets sent as a link or code ---------------------------------------------
+
+// #add=<base64url of {"d":"A","s":[["chestpress",120,12,2],...]}> where each set
+// is exercise, weight, reps, reps left. Returns null unless every set checks out.
+export function parseAddCode(text) {
+  const m = /#add=([\w-]+)/.exec(text || '');
+  if (!m) return null;
+  try {
+    const { d, s } = JSON.parse(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!ORDER.includes(d) || !Array.isArray(s) || !s.length || s.length > 30) return null;
+    const sets = s.map(([ex, w, reps, rir]) => ({ ex, orig: ex, w, reps, rir, added: true }));
+    const ok = x => Object.hasOwn(EX, x.ex) && !['reps', 'carry'].includes(EX[x.ex].kind)
+      && Number.isFinite(x.w) && x.w >= 0 && x.w <= 2000
+      && Number.isInteger(x.reps) && x.reps >= 1 && x.reps <= 100
+      && Number.isInteger(x.rir) && x.rir >= 0 && x.rir <= 4;
+    if (!sets.every(ok)) return null;
+    const n = {};
+    for (const x of sets) x.r = (n[x.ex] = (n[x.ex] ?? -1) + 1);
+    return { day: d, sets };
+  } catch {
+    return null;
+  }
+}
+
+// Sets replace any sets of the same exercise in that lift, so adding twice can't double up.
+export function mergeSets(lift, sets) {
+  const ids = new Set(sets.map(x => x.ex));
+  lift.sets = [...(lift.sets || []).filter(x => !ids.has(x.ex)), ...sets];
 }
 
 // The exercises planned for a day, for the "add a missed exercise" list.

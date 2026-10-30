@@ -557,20 +557,45 @@ legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 600; colo
 .why b { color: var(--ink-2); font-weight: 700; }
 
 .ex { padding-top: 4px; }
-.ex-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ex-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.jump { margin: 2px 0 12px; }
+.jump p { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.jump-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.jump-c { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--panel); font-size: 14px; font-weight: 700; color: var(--ink); }
+.jump-c em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--walk); }
+.jump-c.fin { color: var(--ink-3); }
+.jump-c.fin em { color: var(--green); }
+.jump-c.skip { color: var(--ink-3); text-decoration: line-through; }
+.jump-c.skip em { color: var(--amber); display: inline-block; }
+.jump-c.now { background: var(--run); border-color: var(--run); color: #0c0e0d; }
+.jump-c.now em { color: inherit; }
+.coach { margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.coach-row { padding: 10px 12px; }
+.coach-row + .coach-row { border-top: 1px solid var(--line); }
+.coach-k { display: block; margin-bottom: 3px; font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.coach-sets { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.coach-why { display: block; margin-top: 3px; font-size: 13px; color: var(--ink-3); }
+.ex-rir { margin-top: 14px; }
+.ex-rir > span { display: block; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.ex-rir .rir { margin: 6px 0 0; }
+.ex-rir .rir .pp { height: 52px; }
+.ex-how { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ex-how h2 { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.add-list { list-style: none; margin: 10px 0; padding: 0; font-size: 14px; color: var(--ink-2); }
+.add-list li { padding: 6px 0; border-top: 1px solid var(--line); }
+.add-list b { display: block; color: var(--ink); }
 .ex-head .btn.small { margin: 0; }
 .ex-fig { width: min(100%, 260px); margin: 6px auto 4px; }
-.ex h1 { font-family: var(--display); font-weight: 900; font-size: clamp(30px, 8.5vw, 40px); text-transform: uppercase; line-height: .95; margin: 2px 0 2px; }
+.ex h1 { font-family: var(--display); font-weight: 900; font-size: clamp(26px, 7.5vw, 36px); text-transform: uppercase; line-height: .95; margin: 2px 0 2px; }
 .ex .why { margin-top: 8px; }
 .ex-cue { margin-top: 8px; font-size: 14.5px; color: var(--ink-2); }
-.ex-target { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 14.5px; color: var(--ink-2); }
+.ex-target { font-size: 15px; color: var(--ink-2); }
 .ex-target b { color: var(--ink); font-family: var(--display); font-weight: 800; font-size: 19px; letter-spacing: .02em; }
 .ex-target .up { color: var(--green); font-weight: 700; font-size: 13px; }
 .ex-target .dn, .ex-target .held { color: var(--amber); font-weight: 700; font-size: 13px; }
-.ex-last { margin-top: 8px; font-size: 13px; color: var(--ink-3); }
 .ex-note { margin-top: 6px; font-size: 13px; color: var(--ink-2); }
 .ex-note b { color: var(--ink); }
-.ex-in { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+.ex-in { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
 .stp > span { display: block; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
 .stp-row { display: grid; grid-template-columns: 44px 1fr 44px; gap: 5px; align-items: center; }
 .stp-b { height: 56px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 26px; font-weight: 700; }
@@ -584,40 +609,28 @@ legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 600; colo
 }
 .stp input:focus { border-color: var(--run); }
 .stp em { display: block; text-align: center; font-style: normal; font-size: 12px; color: var(--ink-3); margin-top: 4px; }
-.ex .start.inline { margin-top: 18px; height: 76px; }
+.ex .start.inline { margin-top: 14px; height: 72px; }
 .ex .start small { max-width: 60%; text-align: right; }
 .ex-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .ex-tools button { padding: 10px 12px; border-radius: 99px; border: 1px solid var(--line-2); font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .ex-tools .tw { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
 .ex-tools .tw i { width: 10px; height: 10px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 35%, transparent); }
 
-.ls-plan { list-style: none; margin: 6px 0 0; padding: 0; }
-.ls-plan-h { margin: 22px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-3); }
-.ls-plan li button { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; width: 100%; min-height: 40px; text-align: left; font: inherit; color: inherit; }
-.ls-plan li button:disabled { cursor: default; }
-.ls-plan li em { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--walk); margin-left: 4px; }
-.ls-plan li.fin em { color: var(--green); }
-.ls-plan li.skip em { color: var(--amber); }
-.la-row { align-items: center; margin-bottom: 8px; grid-template-columns: 52px 1fr 1fr; }
+.la-row { align-items: center; gap: 6px; margin-bottom: 8px; grid-template-columns: 40px 1.2fr 1.2fr 62px; }
 .la-n { font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .la-row .inp input { font-size: 20px; padding: 8px 6px 8px 10px; }
-.ls-plan li { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: center; padding: 1px 0; font-size: 13px; color: var(--ink-3); }
-.ls-plan .lk { font-family: var(--display); font-weight: 800; font-size: 13px; text-transform: uppercase; }
-.ls-plan li.now { color: var(--ink); }
-.ls-plan li.now .lk { color: var(--run); }
-.ls-plan li.skip span:nth-child(2) { text-decoration: line-through; }
 .dots { display: flex; gap: 4px; }
 .dots i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--line-2); }
 .dots i.on { background: var(--run); border-color: var(--run); }
 .dots i.cur { border-color: var(--run); box-shadow: 0 0 0 3px rgba(201, 242, 58, .25); }
 .setbar { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 2px; }
-.setbar b { font-family: var(--display); font-weight: 900; font-size: 58px; line-height: .9; color: var(--run); text-transform: uppercase; }
-.setbar > span:not(.dots) { font-family: var(--display); font-weight: 800; font-size: 30px; color: var(--ink-2); text-transform: uppercase; }
+.setbar b { font-family: var(--display); font-weight: 900; font-size: 42px; line-height: .9; color: var(--run); text-transform: uppercase; }
+.setbar > span:not(.dots) { font-family: var(--display); font-weight: 800; font-size: 24px; color: var(--ink-2); text-transform: uppercase; }
 .setbar .dots { margin-left: auto; align-self: center; gap: 6px; }
 .setbar .dots i { width: 16px; height: 16px; }
 .ex-same { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: rgba(77, 141, 255, .14); color: var(--walk); font-weight: 700; font-size: 14px; }
 
-.rest-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 0; }
+.rest-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 16px 0 30px; }
 .rest-clock { font-family: var(--display); font-weight: 800; font-size: clamp(110px, 36vw, 200px); line-height: .9; color: var(--walk); font-variant-numeric: tabular-nums; margin: 6px 0 12px; }
 .rest-next { color: var(--ink-2); margin-bottom: 20px; }
 .rest-next b { color: var(--ink); }

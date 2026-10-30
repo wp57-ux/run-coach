@@ -12,6 +12,7 @@
 //   shSafe   shoulder-safe replacement when shoulders are painful (null = leave it out)
 //   dir      -1 when a bigger number makes it easier (assisted machines, bar notches)
 //   alts     choices behind the Swap button
+//   incLb    weight step in lb, when it isn't the usual 5 (small dumbbells)
 
 export const EX = {
   chestpress: {
@@ -30,7 +31,7 @@ export const EX = {
     why: 'Quads and glutes. Strong quads help with front-of-knee pain, one of your running trouble spots.',
   },
   latraise: {
-    name: 'Lateral raise', fig: 'latraise', reps: [12, 15], press: true, shSafe: null, alts: ['latraisem'],
+    name: 'Dumbbell lateral raise', fig: 'latraise', reps: [10, 15], incLb: 2.5, press: true, shSafe: null, alts: [],
     cue: 'Go light. Thumbs slightly up, arms a little in front of you. Stop at shoulder height.',
     why: 'Builds the side of your shoulders. Wider shoulders make your waist look smaller.',
   },
@@ -237,6 +238,14 @@ export const DAYS = {
       { ex: 'pushdown', sets: 2, optional: true },
     ],
   },
+};
+
+// Short names for the exercise buttons on the lift screen.
+export const JUMP_NAME = {
+  chestpress: 'Chest', csrow: 'Row', legpress: 'Leg press', calfpress: 'Calves', latraise: 'Lat raise',
+  shoulderpress: 'Shoulder press', pulldown: 'Pulldown', legcurl: 'Leg curl', facepull: 'Face pull', suitcase: 'Carry',
+  assistdip: 'Dips', pushup: 'Push-up', cablerow: 'Row', splitsquat: 'Split squat', hipabd: 'Leg push-out',
+  seatedcalf: 'Calves', hammercurl: 'Biceps', pushdown: 'Triceps',
 };
 
 // Offered after 6 weeks with no red back days.

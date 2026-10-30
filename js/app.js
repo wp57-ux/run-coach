@@ -6,7 +6,7 @@ import {
 import { planTotals, sessionTotals } from './calories.js';
 import { AudioCoach } from './audio.js';
 import { Workout } from './workout.js';
-import { EX } from './lift-data.js';
+import { EX, JUMP_NAME } from './lift-data.js';
 import * as Lift from './lift.js';
 import * as Bike from './bike.js';
 import { Guide } from './guide.js';
@@ -16,7 +16,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '10 · Oct 27';
+const APP_VERSION = '11 · Oct 30';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -35,6 +35,8 @@ if (store.TEST) document.body.classList.add('test');
 // Oct 2026: assisted dips were logged in the push-up boxes before they had
 // their own exercise. Push-up bar notches are small numbers; assist weights aren't.
 for (const s of state.lifts) for (const x of s.sets || []) if (x.ex === 'pushup' && x.w > 25) x.ex = 'assistdip';
+// Oct 30: lateral raises are dumbbell only, so drop any old swap to the machine.
+delete state.lift.swaps.latraise;
 let view = 'today';
 let wk = null;        // workout in progress
 let draft = null;     // finished workout awaiting its check-in
@@ -661,6 +663,12 @@ function settingsHTML() {
         <small>Moving yourself by hand resets the green count.</small></label>
     </section>
 
+    <section class="group"><h2>Add sets from Claude</h2>
+      <p class="note">Did a link from Claude open in the wrong place? Copy the link and paste it here.</p>
+      <label class="field"><input id="addCode" type="text" autocomplete="off" placeholder="Paste the link"></label>
+      <button class="btn wide" data-act="add-paste">Add these sets</button>
+    </section>
+
     <section class="group"><h2>Your data</h2>
       <p class="note">Your runs and lifts are stored only on this phone. Export a backup now and then, because clearing Chrome’s data would wipe them.</p>
       <div class="row"><button class="btn" data-act="export">Export backup</button><button class="btn" data-act="import">Import backup</button></div>
@@ -1183,11 +1191,14 @@ let guide = null;      // primer / stretch step timer
 let restT = null;      // rest between rounds
 let lsTimer = null;
 let tw = null;         // "something's tweaking" sheet state
+let addPack = null;    // sets from a link, waiting for you to confirm
 
 const exName = id => EX[id]?.name ?? id;
 const isLevel = id => EX[id].kind === 'level';
 const fmtW = (id, w) => (w === null || w === undefined ? '?' : isLevel(id) ? `notch ${w}` : `${w} ${wUnit()}`);
-const fmtSet = (id, s) => (EX[id].kind === 'reps' ? `${s.reps}` : EX[id].kind === 'carry' ? fmtW(id, s.w) : isLevel(id) ? `${s.reps} @ notch ${s.w}` : `${s.w} × ${s.reps}`);
+const fmtLeft = s => (s.rir === null || s.rir === undefined ? '' : ` · ${s.rir}${s.rir >= 4 ? '+' : ''} RIR`);
+const fmtSet = (id, s) => (EX[id].kind === 'reps' ? `${s.reps}` : EX[id].kind === 'carry' ? fmtW(id, s.w) : isLevel(id) ? `${s.reps} @ notch ${s.w}` : `${s.w} × ${s.reps}`) + fmtLeft(s);
+const exShort = id => JUMP_NAME[id] ?? exName(id);
 const sortedCardio = () => [...state.sessions].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 const activeItems = b => b.items.filter(i => !ls.skipped.includes(i.ex));
 const stepsMin = steps => Math.round(Lift.stepsSeconds(steps) / 60);
@@ -1426,6 +1437,7 @@ function guideHTML() {
     </div>
     <div class="ls-ctrl">${ctrl}</div>
     <button class="ls-skip" data-act="ls-skip-part">Skip ${ls.phase === 'primer' ? 'the primer' : 'the stretches'} ›</button>
+    ${ls.phase === 'cooldown' ? '<button class="ls-skip" data-act="ls-back-lift">‹ Back to exercises</button>' : ''}
   </div>`;
 }
 
@@ -1482,6 +1494,12 @@ function nextLabel() {
   return ni >= 0 ? `Then: ${exName(activeItems(ls.plan.blocks[ni])[0].ex)}` : 'Then stretch';
 }
 
+// Where "no extra set" takes you.
+function leaveLabel() {
+  const ni = nextOpen(ls.ptr.b, ls.ptr.b);
+  return ni >= 0 ? `on to ${exShort(activeItems(ls.plan.blocks[ni])[0].ex)}` : 'on to the stretches';
+}
+
 // Move to exercise bi (or to the stretches when bi is -1).
 function goTo(bi, restSec) {
   ls.cur = null;
@@ -1504,19 +1522,42 @@ const stepperHTML = (k, label, v, unit) => `<div class="stp"><span>${label}</spa
     <button class="stp-b" data-act="ls-step" data-k="${k}" data-d="1" aria-label="More">+</button>
   </div>${unit ? `<em>${unit}</em>` : ''}</div>`;
 
-function planListHTML() {
-  const p = ls.ptr;
-  return `<p class="ls-plan-h">Busy machine? Tap any exercise to do it now.</p>
-    <ol class="ls-plan">${ls.plan.blocks.map((b, bi) => b.items.map(it => {
+// Every exercise, always at the top of the screen. Tap one to do it now.
+function jumpHTML() {
+  return `<nav class="jump" aria-label="Exercises">
+    <p>Machine busy? Tap any exercise to do it now.</p>
+    <div class="jump-row">${ls.plan.blocks.map((b, bi) => b.items.map(it => {
     const done = doneOf(it.ex);
     const skipped = ls.skipped.includes(it.ex);
     const complete = done >= b.sets && !skipped;
-    const now = bi === p.b;
-    const tag = skipped ? 'skipped · tap to bring back' : laterList().includes(bi) ? 'later' : complete ? 'done' : '';
-    const dots = [...Array(b.sets)].map((_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
-    return `<li class="${skipped ? 'skip' : ''}${now ? ' now' : ''}${complete ? ' fin' : ''}"><button data-act="ls-goto" data-b="${bi}" ${complete || (now && ls.phase === 'lift') ? 'disabled' : ''}>
-      <span class="lk">${b.optional ? '+' : bi + 1}</span><span>${esc(exName(it.ex))}${tag ? ` <em>${tag}</em>` : ''}</span><span class="dots">${dots}</span></button></li>`;
-  }).join('')).join('')}</ol>`;
+    const tag = skipped ? 'skipped' : laterList().includes(bi) ? 'later' : complete ? '✓' : done ? `${done}/${b.sets}` : '';
+    return `<button class="jump-c${bi === ls.ptr.b ? ' now' : ''}${complete ? ' fin' : ''}${skipped ? ' skip' : ''}" data-act="ls-goto" data-b="${bi}">${esc(exShort(it.ex))}${tag ? `<em>${tag}</em>` : ''}</button>`;
+  }).join('')).join('')}</div>
+  </nav>`;
+}
+
+// What you did last time and what to do today, right under the exercise name.
+function coachHTML(ex, b, tgt) {
+  const t = ls.targets[ex] || {};
+  const e = EX[ex];
+  const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
+  const weights = (t.last || []).map(s => s.w);
+  const held = e.press && ls.st.shoulders !== 'fine' ? 'shoulders' : 'back';
+  const why = e.kind === 'reps' || e.kind === 'carry' || t.setup ? '' : {
+    up: t.easy ? 'You had 4 or more reps left, so up a step.' : 'You hit the top of the range, so up a step.',
+    best: 'Based on your best set last time.',
+    mixed: `You moved between ${Math.min(...weights)} and ${Math.max(...weights)}. This should hold for ${b.sets === 2 ? 'both' : `all ${b.sets}`} sets.`,
+    down: 'You ran out below the range, so down a step.',
+    held: `Held there for your ${held}.`,
+    same: 'Same weight. Try for one more rep.',
+  }[t.change] || '';
+  return `<div class="coach">
+    <div class="coach-row"><span class="coach-k">Last time${t.lastAt ? ` · ${fmtDay(t.lastAt)}` : ''}</span>
+      <p class="coach-sets">${t.last ? t.last.map(s => esc(fmtSet(ex, s))).join('<br>') : 'Nothing yet. This is your first time.'}</p></div>
+    <div class="coach-row now"><span class="coach-k">Today I’d do</span>
+      <p class="ex-target">${tgt}</p>${why ? `<small class="coach-why">${esc(why)}</small>` : ''}</div>
+    ${today.length ? `<div class="coach-row"><span class="coach-k">Done so far</span><p class="coach-sets">${today.map(esc).join('<br>')}</p></div>` : ''}
+  </div>`;
 }
 
 function liftHTML() {
@@ -1531,40 +1572,41 @@ function liftHTML() {
   else if (t.setup) tgt = '<b>Setup:</b> pick a weight you think you could lift about 12 times, and do 10. You’ll rate it after.';
   else if (e.kind === 'reps') tgt = `Each set: <b>${range}</b>`;
   else {
-    const held = t.change === 'held' ? (e.press && ls.st.shoulders !== 'fine' ? 'shoulders' : 'back') : '';
-    const tag = t.change === 'up' ? ' <span class="up">↑ up from last time</span>' : t.change === 'best' ? ' <span class="up">↑ based on your best set</span>' : t.change === 'down' ? ' <span class="dn">↓ eased off</span>' : held ? ` <span class="held">held for your ${held}</span>` : '';
-    tgt = `Each set: <b>${range}</b>${extraTrip} at <b>${fmtW(ex, t.w)}${e.dir === -1 && !isLevel(ex) ? ' of help' : ''}</b>${tag}`;
+    const arrow = { up: ' <span class="up">↑</span>', best: ' <span class="up">↑</span>', down: ' <span class="dn">↓</span>' }[t.change] || '';
+    tgt = `<b>${fmtW(ex, t.w)}${e.dir === -1 && !isLevel(ex) ? ' of help' : ''}</b>${arrow} × <b>${range}</b>${extraTrip}`;
   }
-  const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
-  const lastLine = [t.last ? `Last time: ${t.last.map(s => fmtSet(ex, s)).join(', ')}` : '', today.length ? `Today: ${today.join(', ')}` : ''].filter(Boolean).join(' · ');
   const note = state.lift.notes[ex];
   const effort = e.kind === 'carry' ? '' : ls.early ? 'Leave about 3 reps in the tank.' : 'Leave 1–3 reps in the tank.';
+  const extra = ls.ptr.r >= b.sets;
   return `<div class="ls lift">
     ${lsTopHTML(`Day ${ls.day}`)}
+    ${jumpHTML()}
     <div class="ex">
-      <div class="ex-head"><span class="eyebrow">${b.optional ? 'Extra · if you have time' : `Exercise ${ls.ptr.b + 1} of ${ls.plan.blocks.filter(x => !x.optional).length}`}</span>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
-      <div class="setbar"><b>Set ${ls.ptr.r + 1}</b><span>of ${b.sets}</span><span class="dots">${[...Array(b.sets)].map((_, i) => `<i class="${i < ls.ptr.r ? 'on' : i === ls.ptr.r ? 'cur' : ''}"></i>`).join('')}</span></div>
+      <div class="ex-head"><h1>${esc(e.name)}</h1>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
+      <div class="setbar">${extra ? '<b>Extra set</b>' : `<b>Set ${ls.ptr.r + 1}</b><span>of ${b.sets}</span>`}<span class="dots">${[...Array(b.sets)].map((_, i) => `<i class="${i < ls.ptr.r ? 'on' : i === ls.ptr.r ? 'cur' : ''}"></i>`).join('')}</span></div>
       ${b.same && ls.ptr.r === 0 ? `<p class="ex-same">${esc(b.same)}</p>` : ''}
-      <div class="ex-fig">${figure(e.fig)}</div>
-      <h1>${esc(e.name)}</h1>
-      <p class="why"><b>Why it’s good for you:</b> ${esc(e.why)}</p>
-      <p class="ex-cue">${esc(e.cue)} ${effort}</p>
-      <p class="ex-target">${tgt}</p>
-      ${lastLine ? `<p class="ex-last">${lastLine}</p>` : ''}
+      ${coachHTML(ex, b, tgt)}
       ${note ? `<p class="ex-note"><b>Your notes:</b> ${esc(note)}</p>` : ''}
       <div class="ex-in">
         ${e.kind !== 'reps' ? stepperHTML('w', isLevel(ex) ? 'Bar notch' : e.dir === -1 ? 'Assist' : 'Weight', ls.cur.w, isLevel(ex) ? 'lower = harder' : wUnit()) : ''}
         ${e.kind !== 'carry' ? stepperHTML('r', e.perSide ? 'Reps each side' : 'Reps', ls.cur.reps, '') : ''}
       </div>
+      ${e.kind !== 'carry' ? `<div class="ex-rir"><span>RIR · reps left in the tank</span>
+        <div class="rir">${[0, 1, 2, 3, 4].map(n => `<button class="pp ${n <= 1 ? 'zr' : n >= 4 ? 'za' : ''}" data-act="ls-rir" data-v="${n}" aria-pressed="${ls.cur.rir === n}">${n === 4 ? '4+' : n}</button>`).join('')}</div></div>` : ''}
       <button class="start inline" data-act="ls-done"><span>Done ✓</span><small>${esc(nextLabel())}</small></button>
       <div class="ex-tools">
+        ${extra ? `<button data-act="ls-leave">No extra set: ${esc(leaveLabel())}</button>` : `<button data-act="ls-later">Machine busy: do it later</button>
+        <button data-act="ls-skip">Skip exercise</button>`}
         <button data-act="ls-note">${note ? 'Edit notes' : 'Machine notes'}</button>
-        <button data-act="ls-later">Machine busy: do it later</button>
-        <button data-act="ls-skip">Skip exercise</button>
         <button class="tw" data-act="ls-tweak"><i></i>Something’s tweaking</button>
       </div>
+      <div class="ex-how">
+        <h2>How to do it</h2>
+        <div class="ex-fig">${figure(e.fig)}</div>
+        <p class="ex-cue">${esc(e.cue)} ${effort}</p>
+        <p class="why"><b>Why it’s good for you:</b> ${esc(e.why)}</p>
+      </div>
     </div>
-    ${planListHTML()}
   </div>`;
 }
 
@@ -1609,6 +1651,7 @@ function restHTML() {
   const started = doneOf(item.ex) > 0;
   return `<div class="ls rest">
     ${lsTopHTML(`Day ${ls.day}`)}
+    ${jumpHTML()}
     <div class="rest-main">
       <span class="eyebrow">Rest</span>
       <div class="rest-clock" id="restClock">${fmtClock(restLeft())}</div>
@@ -1617,7 +1660,6 @@ function restHTML() {
         : `Next: <b>${esc(exName(item.ex))}</b> · set ${ls.ptr.r + 1} of ${b.sets}`}</p>
       <div class="row"><button class="btn" data-act="rest-add">+15 s</button><button class="btn primary" data-act="rest-skip">Skip rest</button></div>
     </div>
-    ${planListHTML()}
   </div>`;
 }
 
@@ -1752,6 +1794,7 @@ function liftCheckinHTML() {
       <textarea id="lciNotes" rows="2" maxlength="500" placeholder="Leg press seat felt off, left shoulder tight on pulldowns…">${esc(c.notes)}</textarea>
     </section>
     <button class="start inline" data-act="lci-save"><span>Save</span></button>
+    <button class="ls-skip" data-act="ls-back-lift">‹ Back to exercises</button>
   </div>`;
 }
 
@@ -2440,6 +2483,38 @@ const actions = {
     toast('Back to the standard exercises');
   },
 
+  'add-paste'() {
+    const code = $('#addCode').value.trim();
+    const pack = Lift.parseAddCode(code);
+    if (!pack) return toast('That link didn’t work. Ask Claude for a new one.');
+    addSetsSheet(pack);
+  },
+
+  'add-save'() {
+    if (!addPack) return closeSheet();
+    const to = $('#addTo').value;
+    let lift = state.lifts.find(x => x.id === to);
+    if (!lift) {
+      const at = new Date(`${$('#addDate').value}T18:00:00`);
+      if (Number.isNaN(at.getTime())) return toast('Pick a date');
+      const iso = at.toISOString();
+      lift = {
+        id: uid(), at: iso, endedAt: iso, day: addPack.day, withRun: false, sets: [], skipped: [], primer: false, cooldown: false, setup: [],
+        back: 0, catch: false, radiating: false, shoulders: 'fine', tweak: null, notes: '', durSec: 0, kcal: 0, units: units(), weight: state.profile.weight,
+        reset: false, trimmed: false, noLegs: false, prelim: 'green', morning: 'same',
+      };
+      state.lifts.push(lift);
+      if (state.lifts.every(x => Date.parse(x.at) <= at.getTime())) state.lift.next = null;
+    }
+    Lift.mergeSets(lift, addPack.sets);
+    const n = addPack.sets.length;
+    addPack = null;
+    persist();
+    closeSheet();
+    render();
+    toast(`Added ${n} set${n > 1 ? 's' : ''} to Day ${lift.day} on ${fmtDay(lift.at)}`);
+  },
+
   ladd(el) {
     const s = state.lifts.find(x => x.id === el.dataset.id);
     if (!s) return;
@@ -2450,7 +2525,8 @@ const actions = {
       <label class="field"><span>Exercise</span><select id="laEx">${opts.map(id => `<option value="${id}">${esc(exName(id))}${day.includes(id) ? '' : ' (not on this day)'}</option>`).join('')}</select></label>
       ${[1, 2, 3].map(n => `<div class="grid3 la-row"><span class="la-n">Set ${n}</span>
         <div class="inp"><input id="laW${n}" type="number" inputmode="decimal" min="0" max="2000" placeholder="weight"><em>${wUnit()}</em></div>
-        <div class="inp"><input id="laR${n}" type="number" inputmode="numeric" min="1" max="100" placeholder="reps"><em>reps</em></div></div>`).join('')}
+        <div class="inp"><input id="laR${n}" type="number" inputmode="numeric" min="1" max="100" placeholder="reps"><em>reps</em></div>
+        <div class="inp"><input id="laL${n}" type="number" inputmode="numeric" min="0" max="10" placeholder="RIR"></div></div>`).join('')}
       <div class="sheet-btns"><button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="ladd-save" data-id="${s.id}">Add</button></div>`);
   },
 
@@ -2464,7 +2540,9 @@ const actions = {
       if (wv === '' && rv === '') continue;
       const w = Number(wv), reps = Math.round(Number(rv));
       if (!(w >= 0 && w <= 2000) || !(reps >= 1 && reps <= 100)) return toast(`Check set ${n}: weight and reps`);
-      sets.push({ ex, orig: ex, w, reps, r: sets.length, added: true });
+      const lv = $(`#laL${n}`).value, rir = lv === '' ? undefined : Math.min(4, Math.round(Number(lv)));
+      if (rir !== undefined && !(rir >= 0)) return toast(`Check set ${n}: RIR`);
+      sets.push({ ex, orig: ex, w, reps, r: sets.length, added: true, ...(rir === undefined ? {} : { rir }) });
     }
     if (!sets.length) return toast('Enter at least one set');
     s.sets = [...(s.sets || []), ...sets];
@@ -2543,36 +2621,31 @@ const actions = {
     const ex = item.ex, e = EX[ex];
     const w = e.kind === 'reps' ? null : ls.cur.w;
     const reps = e.kind === 'carry' ? 1 : ls.cur.reps;
+    const rir = ls.cur.rir;
     if (e.kind !== 'reps' && !(Number.isFinite(w) && w >= 0 && w <= 2000)) return toast(isLevel(ex) ? 'Enter the bar notch' : 'Enter the weight you used');
     if (!(Number.isInteger(reps) && reps >= 0 && reps <= 100)) return toast('Enter your reps');
-    const set = { ex, orig: item.orig, w, reps, r: ls.ptr.r };
+    if (e.kind !== 'carry' && rir === undefined) return toast('Tap your RIR: how many reps were left?');
+    const set = { ex, orig: item.orig, w, reps, r: ls.ptr.r, ...(rir === undefined ? {} : { rir }) };
     ls.sets.push(set);
     ls.next[ex] = { w, reps };
     audio.vibrate([60]);
     if (ls.targets[ex]?.setup && e.kind !== 'carry') {
       if (!ls.setupList.includes(ex)) ls.setupList.push(ex);
-      saveLs();
-      openSheet(`<h3>How many more?</h3>
-        <p>How many more reps could you have done with good form?</p>
-        <div class="rir">${[0, 1, 2, 3, 4].map(n => `<button class="pp ${n <= 1 ? 'zr' : n >= 4 ? 'za' : ''}" data-act="ls-rir" data-v="${n}">${n === 4 ? '4+' : n}</button>`).join('')}</div>
-        <p class="note">Most people guess about 1 rep low. Torn between two? Pick the higher one.</p>`, false);
-      return;
+      if (w !== null) {
+        const nw = Lift.setupNext(ex, w, rir, units());
+        ls.next[ex] = { w: nw, reps: 10 };
+        if (nw !== w) toast(`Next set: <b>${fmtW(ex, nw)}</b>`);
+      }
     }
     saveLs();
     advance();
   },
 
   'ls-rir'(el) {
-    const set = ls?.sets.at(-1);
-    if (!set) return;
-    set.rir = Number(el.dataset.v);
-    if (set.w !== null) {
-      const nw = Lift.setupNext(set.ex, set.w, set.rir, units());
-      ls.next[set.ex] = { w: nw, reps: 10 };
-      if (nw !== set.w) toast(`Next set: <b>${fmtW(set.ex, nw)}</b>`);
-    }
-    closeSheet();
-    advance();
+    if (!ls?.cur) return;
+    syncCur();
+    ls.cur.rir = Number(el.dataset.v);
+    document.querySelectorAll('.ex-rir .pp').forEach(x => x.setAttribute('aria-pressed', String(x === el)));
   },
 
   'ls-opt'(el) {
@@ -2590,6 +2663,11 @@ const actions = {
     afterRemoval();
   },
 
+  'ls-leave'() {
+    if (!ls || ls.phase !== 'lift') return;
+    goTo(nextOpen(ls.ptr.b, ls.ptr.b), 0);
+  },
+
   'ls-later'() {
     if (!ls || ls.phase !== 'lift') return;
     syncCur();
@@ -2604,15 +2682,38 @@ const actions = {
   'ls-goto'(el) {
     if (!ls || !['lift', 'rest'].includes(ls.phase)) return;
     const bi = +el.dataset.b, b = ls.plan.blocks[bi];
-    if (!b) return;
+    if (!b || (ls.phase === 'lift' && bi === ls.ptr.b)) return;
     if (ls.phase === 'lift') syncCur();
     const wasSkipped = b.items.some(i => ls.skipped.includes(i.ex));
     ls.skipped = ls.skipped.filter(x => !b.items.some(i => i.ex === x));
-    if (blockDone(b)) return ls.phase === 'rest' ? showScreen(restHTML()) : showLift();
     if (b.optional) ls.optAsked = true;
     restT = null;
     if (wasSkipped) toast(`${esc(exName(b.items[0].ex))} is back on`);
     goTo(bi, 0);
+  },
+
+  // From the stretches or the check-in, back to whatever isn't finished.
+  'ls-back-lift'() {
+    if (!ls || !['cooldown', 'checkin'].includes(ls.phase)) return;
+    if (ls.phase === 'checkin') {
+      ls.endedAt = null;
+      history.pushState({ ls: 1 }, '');
+      requestWakeLock();
+      startLsLoop();
+    }
+    guide = null;
+    let bi = nextOpen(ls.ptr.b);
+    if (bi < 0) bi = ls.plan.blocks.findIndex(b => activeItems(b).length);
+    if (bi < 0) {
+      ls.skipped = [];
+      bi = 0;
+    }
+    ls.ptr = { b: bi, k: 0, r: doneOf(activeItems(ls.plan.blocks[bi])[0].ex) };
+    ls.later = laterList().filter(x => x !== bi);
+    ls.cur = null;
+    ls.phase = 'lift';
+    saveLs();
+    showLift();
   },
 
   'ls-swap'() {
@@ -2765,6 +2866,10 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('change', e => {
+  if (e.target.id === 'addTo') {
+    $('#addDateF').hidden = e.target.value !== 'new';
+    return;
+  }
   const el = e.target;
   if (el.id === 'stageSel') return changeStage(+el.value, el);
   if (el.id === 'importFile') return importFile(el.files[0]);
@@ -2876,6 +2981,40 @@ window.addEventListener('appinstalled', () => {
   if (state.onboarded && !wk) render();
 });
 
+// Sets Claude sends you as a link. Nothing is saved until you tap Add.
+function addSetsSheet(pack) {
+  addPack = pack;
+  const ids = [...new Set(pack.sets.map(x => x.ex))];
+  const list = `<ul class="add-list">${ids.map(id => `<li><b>${esc(exName(id))}</b>${pack.sets.filter(x => x.ex === id).map(x => esc(fmtSet(id, x))).join('<br>')}</li>`).join('')}</ul>`;
+  if (!state.lifts.length) {
+    addPack = null;
+    return openSheet(`<h3>Open this in Run Coach</h3>
+      <p>This browser has no lifts saved, so your real ones must be somewhere else. Copy the link, open Run Coach from your home screen, then go to Settings › Add sets from Claude.</p>
+      <button class="btn wide" data-act="sheet-close">OK</button>`);
+  }
+  const recent = [...state.lifts].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 5);
+  const match = recent.find(x => x.day === pack.day && Date.now() - Date.parse(x.at) < 3 * 864e5);
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  openSheet(`<h3>Add these sets?</h3>
+    ${list}
+    <label class="field"><span>Which workout</span><select id="addTo">
+      ${recent.map(x => `<option value="${x.id}" ${x === match ? 'selected' : ''}>Day ${x.day} · ${fmtDay(x.at)}</option>`).join('')}
+      <option value="new" ${match ? '' : 'selected'}>New Day ${pack.day} workout</option></select></label>
+    <label class="field" id="addDateF" ${match ? 'hidden' : ''}><span>Date</span><input id="addDate" type="date" max="${today}" value="${today}"></label>
+    <p class="note">If that workout already has one of these exercises, these sets replace the old ones.</p>
+    <div class="sheet-btns"><button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="add-save">Add</button></div>`);
+}
+
+function handleAddLink() {
+  if (!location.hash.startsWith('#add=')) return;
+  const pack = Lift.parseAddCode(location.hash);
+  history.replaceState(history.state, '', location.pathname + location.search);
+  if (wk || ls) return toast('Finish your workout first, then tap the link again.');
+  if (!pack) return toast('That link didn’t work. Ask Claude for a new one.');
+  addSetsSheet(pack);
+}
+window.addEventListener('hashchange', handleAddLink);
+
 // Updates. An installed app can sit open in the background for days and never
 // reload, so check for a new version whenever it comes back on screen, and
 // switch to it straight away, unless you're mid-workout (then it waits).
@@ -2903,3 +3042,4 @@ if ('serviceWorker' in navigator) {
 }
 
 render();
+handleAddLink();
