@@ -16,7 +16,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '12 · Oct 30';
+const APP_VERSION = '13 · Oct 30';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -37,6 +37,10 @@ if (store.TEST) document.body.classList.add('test');
 for (const s of state.lifts) for (const x of s.sets || []) if (x.ex === 'pushup' && x.w > 25) x.ex = 'assistdip';
 // Oct 30: lateral raises are dumbbell only, so drop any old swap to the machine.
 delete state.lift.swaps.latraise;
+// Oct 30: the bike hurts your outer hip. Elliptical from now on (Settings has the
+// bike), and go easy on that hip until you say it has settled.
+state.bike.machine ||= 'elliptical';
+state.lift.hipCare ??= true;
 let view = 'today';
 let wk = null;        // workout in progress
 let draft = null;     // finished workout awaiting its check-in
@@ -156,22 +160,24 @@ const card = (tone, title, body, actions = '') =>
   `<div class="card ${tone}"><h3>${title}</h3><p>${body}</p>${actions ? `<div class="row">${actions}</div>` : ''}</div>`;
 
 function roadHTML(stage, goal, bike = false) {
-  const max = bike ? Bike.BIKE_MAX : MAX_STAGE;
+  const max = bike ? mach().stages.length : MAX_STAGE;
   let cells = '';
   for (let n = 1; n <= max; n++) {
     const cls = goal || n < stage ? 'done' : n === stage ? 'now' : '';
     cells += `<span class="${cls}">${n === max ? (bike ? '★' : '5K') : n}</span>`;
   }
   return `<div class="road-wrap">
-    <div class="road-head"><span class="eyebrow">${bike ? 'Bike plan' : 'Road to 5K'}</span><span class="eyebrow">Stage ${stage} of ${max}</span></div>
-    <div class="road">${cells}</div>
+    <div class="road-head"><span class="eyebrow">${bike ? `${mach().name} plan` : 'Road to 5K'}</span><span class="eyebrow">Stage ${stage} of ${max}</span></div>
+    <div class="road" style="grid-template-columns:repeat(${max},1fr)">${cells}</div>
   </div>`;
 }
 
 // ---- cardio: run or bike ----------------------------------------------------
 
 const isBike = () => state.cardio === 'bike';
-const nounOf = s => (s?.mode === 'bike' ? 'ride' : 'run');
+const mach = () => Bike.machineOf(state);
+const machOf = s => Bike.MACHINES[s?.machine] || Bike.MACHINES.bike;
+const nounOf = s => (s?.mode === 'bike' ? machOf(s).noun : 'run');
 
 // Everything Today and the workout need about the next run or ride.
 function cardioCtx(now = Date.now()) {
@@ -183,19 +189,20 @@ function cardioCtx(now = Date.now()) {
     return { bike: false, noun: 'run', prog, info: stageInfo(prog.stage), segs, totalMin: Math.round(plan.totalSec / 60), plan, est, kcal: est.kcal, rest: restInfo(prog, now) };
   }
   const prog = Bike.bikeProgression(state, now);
-  const segs = Bike.bikeSegments(prog.stage);
+  const m = mach();
+  const segs = Bike.bikeSegments(prog.stage, m.key);
   const t = Bike.bikeTotals(segs);
   const unit = bunit();
   const power = unit !== 'feel' ? prog.power : null;
   return {
-    bike: true, noun: 'ride', prog, info: Bike.bikeStage(prog.stage), segs, power, unit,
+    bike: true, noun: m.noun, prog, info: Bike.bikeStage(prog.stage, m.key), segs, power, unit,
     totalMin: Math.round(t.totalSec / 60), workSec: t.workSec,
-    kcal: Bike.bikeKcal(Bike.planSecByType(segs), unit === 'watts' ? power : null, state.profile.weight, units()),
+    kcal: Bike.bikeKcal(Bike.planSecByType(segs), unit === 'watts' ? power : null, state.profile.weight, units(), m.key),
     rest: Bike.bikeRest(prog, now), setup: unit !== 'feel' && !prog.power,
   };
 }
 
-const bunit = () => state.bike.unit || 'level';
+const bunit = () => Bike.unitOf(state);
 const zoneW = (zone, power, unit = bunit()) => Bike.zoneTarget(zone, power, unit);
 // "level 11" or "120 W"
 const fmtP = (v, unit = bunit()) => (unit === 'level' ? `level ${v}` : `${v} W`);
@@ -204,21 +211,22 @@ const steadyStat = (p, unit) => `<div><dt>${unit === 'level' ? 'Level' : 'Steady
 
 function bikeTargetsHTML(power, unit = bunit()) {
   if (!power) return '';
-  return ['easy', 'steady', 'strong', 'hard'].map(z => `${Bike.ZONES[z].label.toLowerCase()} <b>${fmtP(zoneW(z, power, unit), unit)}</b>`).join(' · ');
+  return mach().shown.map(z => `${Bike.ZONES[z].label.toLowerCase()} <b>${fmtP(zoneW(z, power, unit), unit)}</b>`).join(' · ');
 }
 
 function bikeHeroHTML(c) {
   const { prog, info, power } = c;
+  const m = mach();
   const tip = c.setup
     ? c.unit === 'level'
-      ? 'This ride sets your <b>steady level</b>. In the steady part, pick the level where you’re breathing harder but can still talk in short sentences, and remember it for the check-in.'
+      ? `This ${m.noun} sets your <b>steady level</b>. In the steady part, pick the level where you’re breathing harder but can still talk in short sentences, and remember it for the check-in.`
       : 'Your first ride sets your <b>steady power</b>. In the steady part, settle on an effort where you’re breathing harder but can still talk in short sentences, then note the watts on the screen.'
-    : power ? `Targets: ${bikeTargetsHTML(power)}.` : 'Ride by feel: easy = chatty, steady = short sentences, strong = a few words, hard = a big minute.';
+    : power ? `Targets: ${bikeTargetsHTML(power)}.` : m.feelHelp;
   return `<section class="hero">
-      <div class="hero-top"><span class="eyebrow">Next ride · Stage ${prog.stage}</span>${c.setup ? '<span class="tag">Setup ride</span>' : info.milestone ? `<span class="tag">${esc(info.milestone)}</span>` : ''}</div>
+      <div class="hero-top"><span class="eyebrow">Next ${m.noun} · Stage ${prog.stage}</span>${c.setup ? `<span class="tag">Setup ${m.noun}</span>` : info.milestone ? `<span class="tag">${esc(info.milestone)}</span>` : ''}</div>
       <h1>${esc(info.name)}</h1>
       ${matrixHTML(c.segs)}
-      <div class="legend"><span class="walk">Easy</span><span class="run">Steady</span><span class="strong">Strong</span><span class="hard">Hard</span><span class="easy">Warm-up / cool-down</span></div>
+      <div class="legend"><span class="walk">Easy</span><span class="run">Steady</span>${m.shown.includes('strong') ? '<span class="strong">Strong</span>' : ''}<span class="hard">Hard</span><span class="easy">Warm-up / cool-down</span></div>
       <dl class="stats">
         <div><dt>Total</dt><dd>${c.totalMin}<small>min</small></dd></div>
         <div><dt>Working</dt><dd>${fmtMins(c.workSec)}<small>min</small></dd></div>
@@ -226,7 +234,7 @@ function bikeHeroHTML(c) {
         ${steadyStat(power, c.unit)}
       </dl>
       ${streakHTML(prog, true)}
-      <p class="hint">${tip} Keep about 80–90 rpm. Seat high enough that your knee stays slightly bent at the bottom.</p>
+      <p class="hint">${tip} ${m.form}</p>
     </section>`;
 }
 
@@ -281,10 +289,10 @@ function matrixCol(segs, pos) {
 function streakHTML(prog, bike = false) {
   if (prog.goal) return '';
   const dots = [0, 1].map(i => `<i class="${i < prog.streak ? 'on' : ''}"></i>`).join('');
-  const top = bike ? Bike.BIKE_MAX : MAX_STAGE;
-  const what = bike ? 'ride' : 'run';
+  const top = bike ? mach().stages.length : MAX_STAGE;
+  const what = bike ? mach().noun : 'run';
   const text = prog.stage === top
-    ? (bike ? (prog.streak ? '1 more green ride at stage 12 and you’ve done it' : '2 green rides at stage 12 and you’ve done it')
+    ? (bike ? (prog.streak ? `1 more green ${what} at stage ${top} and you’ve done it` : `2 green ${what}s at stage ${top} and you’ve done it`)
       : (prog.streak ? '1 more green 5K and you’ve done it' : '2 green 5Ks in a row and you’ve done it'))
     : (prog.streak ? `1 more green ${what} to move up` : `2 green ${what}s in a row to move up`);
   return `<div class="streak">${dots}<span>${text}</span></div>`;
@@ -362,7 +370,7 @@ function todayHTML() {
   }
   if (prog.goal) {
     cards.push(c.bike
-      ? card('green', 'Stage 12. Done.', 'Two green 35-minute strong rides. Keep riding stage 12 two or three times a week, and your steady power keeps climbing.')
+      ? card('green', `Stage ${mach().stages.length}. Done.`, `${mach().goal}. ${mach().keepGoing}`)
       : card('green', '5K. Done.', 'Two green 5Ks in a row. Keep running stage 12 two or three times a week to hold onto it.'));
   }
   if (prog.reds >= 2) cards.push(card('red', 'Two red days in a row', 'Worth getting this looked at by a physio before you push on. The plan keeps you at an easier stage in the meantime.'));
@@ -414,16 +422,16 @@ function cardioRowHTML(s) {
   const bike = s.mode === 'bike';
   const p = s.setPower || s.power;
   const detail = bike
-    ? `<p>Ride · ${Math.round(s.totalSec / 60)} min total${p && Bike.sessionUnit(s) !== 'feel' ? ` · steady ${fmtP(p, Bike.sessionUnit(s))}${s.setPower ? ' (setup)' : ''}` : ''}${s.completed ? '' : ' · <b>stopped early</b>'}</p>`
+    ? `<p>${machOf(s).label} · ${Math.round(s.totalSec / 60)} min total${p && Bike.sessionUnit(s) !== 'feel' ? ` · steady ${fmtP(p, Bike.sessionUnit(s))}${s.setPower ? ' (setup)' : ''}` : ''}${s.completed ? '' : ' · <b>stopped early</b>'}</p>`
     : `<p>${fmtDist(s.distKm)} · ${Math.round((s.runSec + s.walkSec) / 60)} min total${s.completed ? '' : ' · <b>stopped early</b>'}</p>`;
   return `<details class="hist">
-      <summary><i class="dot ${dot}"></i><span class="h-d">${fmtDay(s.at)}</span><span class="h-s">${bike ? 'B' : 'S'}${s.stage}</span><span class="h-r">${fmtMins(Math.round(cardioSec(s) / 6) * 6)}′ ${bike ? 'ride' : 'run'}</span><span class="h-k">${s.kcal} kcal</span></summary>
+      <summary><i class="dot ${dot}"></i><span class="h-d">${fmtDay(s.at)}</span><span class="h-s">${bike ? machOf(s).name[0] : 'S'}${s.stage}</span><span class="h-r">${fmtMins(Math.round(cardioSec(s) / 6) * 6)}′ ${nounOf(s)}</span><span class="h-k">${s.kcal} kcal</span></summary>
       <div class="h-b">
         ${detail}
         <p>Pain ${s.pain}/10${s.where?.length ? ` (${s.where.map(esc).join(', ')})` : ''}${s.worseDuring ? ' · got worse' : ''}${s.limping ? ' · limping' : ''} · felt ${esc(s.effort)}</p>
         <p>Next morning: ${s.morning ? MORNING_LABEL[s.morning] : s.prelim === 'red' ? 'n/a' : 'not answered yet'}</p>
         ${s.notes ? `<p class="h-n">“${esc(s.notes)}”</p>` : ''}
-        <button class="btn ghost small" data-act="del" data-id="${s.id}">Delete this ${bike ? 'ride' : 'run'}</button>
+        <button class="btn ghost small" data-act="del" data-id="${s.id}">Delete this ${nounOf(s)}</button>
       </div>
     </details>`;
 }
@@ -434,16 +442,16 @@ function powerHTML(prog) {
   const title = unit === 'level' ? 'Steady level' : 'Steady power';
   const u = unit === 'watts' ? 'W' : '';
   const ps = prog.powers || [];
-  if (!ps.length) return `<section class="group"><h2>${title}</h2><p class="note">Your first ride sets it.</p></section>`;
+  if (!ps.length) return `<section class="group"><h2>${title}</h2><p class="note">Your first ${mach().noun} sets it.</p></section>`;
   return `<section class="group"><h2>${title}</h2>
       <div class="plank">
         <div><small>Now</small><b>${prog.power}<i>${u}</i></b></div>
-        <div><small>First ride</small><b>${ps[0].power}<i>${u}</i></b></div>
+        <div><small>First ${mach().noun}</small><b>${ps[0].power}<i>${u}</i></b></div>
         <div><small>Change</small><b class="${prog.power > ps[0].power ? 'ok' : ''}">${prog.power >= ps[0].power ? '+' : ''}${prog.power - ps[0].power}<i>${u}</i></b></div>
       </div>
       ${ps.length > 1 ? `<div class="power-spark">${sparkSVG(ps.slice(-20).map(x => x.power))}</div>` : ''}
       <p class="note">${unit === 'level'
-        ? 'Rides that feel easy move you up a level once the next-morning check confirms them. Hard ones take a level off.'
+        ? `${mach().Nouns} that feel easy move you up a level once the next-morning check confirms them. Hard ones take a level off.`
         : 'Rides that feel easy add 5 W once the next-morning check confirms them. Hard ones take 5 W off.'}</p>
     </section>`;
 }
@@ -452,7 +460,7 @@ function progressHTML() {
   const now = Date.now();
   const bike = isBike();
   const prog = bike ? Bike.bikeProgression(state, now) : progression(state, now);
-  const info = bike ? Bike.bikeStage(prog.stage) : stageInfo(prog.stage);
+  const info = bike ? Bike.bikeStage(prog.stage, mach().key) : stageInfo(prog.stage);
   const list = [...state.sessions].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   const isRide = x => x.mode === 'bike';
 
@@ -480,14 +488,14 @@ function progressHTML() {
     return `<div class="bar${i === weeks.length - 1 ? ' cur' : ''}"><span class="bv">${v || ''}</span><i style="--p:${v / max}"></i><span class="bl">${label}</span></div>`;
   }).join('');
 
-  const planRows = (bike ? Bike.BIKE_STAGES : STAGES).map(s => {
+  const planRows = (bike ? mach().stages : STAGES).map(s => {
     const cls = prog.goal || s.n < prog.stage ? 'done' : s.n === prog.stage ? 'now' : '';
-    const mins = bike ? Math.round(Bike.bikeTotals(Bike.bikeSegments(s.n)).totalSec / 60) : Math.round(planTotals(buildSegments(s.n, state.treadmill, units())).totalSec / 60);
+    const mins = bike ? Math.round(Bike.bikeTotals(Bike.bikeSegments(s.n, mach().key)).totalSec / 60) : Math.round(planTotals(buildSegments(s.n, state.treadmill, units())).totalSec / 60);
     return `<li class="${cls}"><b>${s.n}</b><span>${esc(s.name)}</span><em>${mins} min</em></li>`;
   }).join('');
 
   const allParts = [
-    allRides.n ? `<b>${allRides.n}</b> ${allRides.n === 1 ? 'ride' : 'rides'} · <b>${Math.round(allRides.run / 60)}</b> min working` : '',
+    allRides.n ? `<b>${allRides.n}</b> ${allRides.n === 1 ? mach().noun : mach().nouns} · <b>${Math.round(allRides.run / 60)}</b> min working` : '',
     allRuns.n ? `<b>${allRuns.n}</b> ${allRuns.n === 1 ? 'run' : 'runs'} · <b>${Math.round(allRuns.run / 60)}</b> min running · <b>${distVal(allRuns.km).toFixed(1)}</b> ${dUnit()}` : '',
     `<b>${state.lifts.length}</b> ${state.lifts.length === 1 ? 'lift' : 'lifts'}`,
     `<b>${(allRuns.kcal + allRides.kcal + liftKcalAll).toLocaleString()}</b> kcal`,
@@ -496,14 +504,14 @@ function progressHTML() {
   return `
     ${headerHTML('Progress')}
     <section class="big-stage">
-      <div class="bs-num">${prog.stage}<small>/${bike ? Bike.BIKE_MAX : MAX_STAGE}</small></div>
-      <div><span class="eyebrow">${bike ? 'Bike stage' : 'Current stage'}</span><p>${esc(info.name)}</p></div>
+      <div class="bs-num">${prog.stage}<small>/${bike ? mach().stages.length : MAX_STAGE}</small></div>
+      <div><span class="eyebrow">${bike ? `${mach().name} stage` : 'Current stage'}</span><p>${esc(info.name)}</p></div>
     </section>
     ${roadHTML(prog.stage, prog.goal, bike)}
     <section class="group"><h2>This week</h2>
       <dl class="stats">
         ${bike
-          ? `<div><dt>Rides</dt><dd>${cur.rides.n}</dd></div><div><dt>Lifts</dt><dd>${cur.lifts}</dd></div><div><dt>Riding</dt><dd>${Math.round(cur.rides.run / 60)}<small>min</small></dd></div>`
+          ? `<div><dt>${mach().Nouns}</dt><dd>${cur.rides.n}</dd></div><div><dt>Lifts</dt><dd>${cur.lifts}</dd></div><div><dt>${mach().doing}</dt><dd>${Math.round(cur.rides.run / 60)}<small>min</small></dd></div>`
           : `<div><dt>Runs</dt><dd>${cur.runs.n}</dd></div><div><dt>Lifts</dt><dd>${cur.lifts}</dd></div><div><dt>Distance</dt><dd>${distVal(cur.runs.km).toFixed(1)}<small>${dUnit()}</small></dd></div>`}
         <div><dt>Burn</dt><dd>${cur.kcal}<small>kcal</small></dd></div>
       </dl>
@@ -513,7 +521,7 @@ function progressHTML() {
       <div class="gh"><h2>Last 8 weeks</h2>
         <div class="seg small">
           <button data-act="metric" data-v="kcal" aria-pressed="${chartMetric === 'kcal'}">kcal</button>
-          <button data-act="metric" data-v="run" aria-pressed="${chartMetric === 'run'}">${bike ? 'ride' : 'run'} min</button>
+          <button data-act="metric" data-v="run" aria-pressed="${chartMetric === 'run'}">${bike ? mach().noun : 'run'} min</button>
         </div>
       </div>
       <div class="chart">${bars}</div>
@@ -522,12 +530,12 @@ function progressHTML() {
       <p class="alltime">${allParts}</p>
     </section>
     <section class="group"><h2>Cardio history</h2>
-      ${list.map(cardioRowHTML).join('') || `<p class="note">No ${bike ? 'rides' : 'runs'} yet. Your first one will show up here.</p>`}
+      ${list.map(cardioRowHTML).join('') || `<p class="note">No ${bike ? mach().nouns : 'runs'} yet. Your first one will show up here.</p>`}
     </section>
     ${safeHTML(strengthHTML)}
-    <section class="group"><h2>The ${bike ? 'bike' : 'run'} plan</h2>
+    <section class="group"><h2>The ${bike ? mach().lc : 'run'} plan</h2>
       <p class="note">${bike
-        ? 'Every ride starts with 5 minutes of easy spinning and ends with a 3-minute cool-down. You move up after 2 green rides in a row, repeat on amber, and drop back one on red.'
+        ? mach().planNote
         : 'Every run starts with a 5-minute brisk walk. You move up after 2 green runs in a row, repeat on amber, and drop back one on red.'}</p>
       <ol class="planlist">${planRows}</ol>
     </section>`;
@@ -535,21 +543,22 @@ function progressHTML() {
 
 function bikeSettingsHTML() {
   const bp = Bike.bikeProgression(state);
-  const unit = bunit(), U = Bike.UNITS[unit];
+  const unit = bunit(), U = Bike.UNITS[unit], m = mach();
   const seg = [['level', 'Levels'], ['watts', 'Watts'], ['feel', 'By feel']]
+    .filter(([v]) => v !== 'watts' || m.key === 'bike')
     .map(([v, l]) => `<button data-act="bike-unit" data-v="${v}" aria-pressed="${unit === v}">${l}</button>`).join('');
   const help = {
-    level: 'Ride at a steady 80–90 rpm. Easy is 4 levels below your steady level, strong 2 above, hard 4 above. Levels differ between bike models, so try to use the same one.',
+    level: m.levelHelp,
     watts: 'Every target is a share of your steady power: easy 60%, steady 100%, strong 115%, hard 135%. Watts differ a little between bike models.',
-    feel: 'No numbers: easy = chatty, steady = short sentences, strong = a few words, hard = a big minute.',
+    feel: m.feelHelp,
   }[unit];
-  return `<section class="group"><h2>Bike</h2>
+  return `<section class="group"><h2>${m.name}</h2>
       <div class="field"><span>Targets in</span><div class="seg">${seg}</div><small>${help}</small></div>
       ${U ? `
       <label class="field"><span>${unit === 'level' ? 'Steady level' : 'Steady power'}</span>
-        <div class="row power-row"><div class="inp"><input id="powerIn" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="Set on your first ride" value="${bp.power ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
+        <div class="row power-row"><div class="inp"><input id="powerIn" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="Set on your first ${m.noun}" value="${bp.power ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
         <button class="btn" data-act="power-set">Set</button></div></label>
-      <button class="btn wide" data-act="power-redo">Redo the setup ride next time</button>` : ''}
+      <button class="btn wide" data-act="power-redo">Redo the setup ${m.noun} next time</button>` : ''}
     </section>`;
 }
 
@@ -574,7 +583,8 @@ function settingsHTML() {
 
     <section class="group"><h2>Cardio</h2>
       <div class="seg">
-        <button data-act="cardio" data-v="bike" aria-pressed="${bike}">Bike</button>
+        <button data-act="cardio" data-v="elliptical" aria-pressed="${bike && mach().key === 'elliptical'}">Elliptical</button>
+        <button data-act="cardio" data-v="bike" aria-pressed="${bike && mach().key === 'bike'}">Bike</button>
         <button data-act="cardio" data-v="run" aria-pressed="${!bike}">Treadmill run</button>
       </div>
       <p class="note">Each plan keeps its own stage and history, so you can switch back any time.</p>
@@ -648,18 +658,19 @@ function settingsHTML() {
         <small>Normally automatic: A → B → C, picking up where you left off.</small></div>
       <div class="field"><span>Your limit for a whole gym visit</span>
         <div class="seg">${[60, 70, 80, 90].map(v => `<button data-act="set-num" data-path="lift.maxMin" data-v="${v}" aria-pressed="${maxMin() === v}">${v} min</button>`).join('')}</div>
-        <small>Ride, primer, lift and stretch together. Over it, the lift drops to 2 sets each, then the primer and stretches get shorter.</small></div>
+        <small>Cardio, primer, lift and stretch together. Over it, the lift drops to 2 sets each, then the primer and stretches get shorter.</small></div>
       <div class="field"><span>Rest between sets</span>
         <div class="seg">${Lift.REST_CHOICES.map(v => `<button data-act="set-num" data-path="lift.rest" data-v="${v}" aria-pressed="${Lift.mainRest(state) === v}">${v} s</button>`).join('')}</div>
         <small>For the 3-set exercises. The 2-set ones rest 60 s.</small></div>
+      ${toggleHTML('lift.hipCare', 'Go easy on my outer hip', 'Leaves out the leg push-out machine and the figure-4 stretch. Turn it off once your hip has settled.')}
       ${state.lift.phase2 !== null ? toggleHTML('lift.phase2', 'Phase 2 exercises', 'Romanian deadlift, Bulgarian split squat, 45° back extension') : ''}
       ${Object.keys(state.lift.swaps).length ? `<button class="btn wide" data-act="swaps-reset">Undo my exercise swaps (${Object.keys(state.lift.swaps).length})</button>` : ''}
       <button class="btn wide" data-act="plank-redo">${state.lift.plankDue ? 'Side plank test is due next lift' : 'Side plank test next lift'}</button>
     </section>
 
     <section class="group"><h2>Plan</h2>
-      <label class="field"><span>Current ${bike ? 'bike' : 'run'} stage</span>
-        <select id="stageSel">${(bike ? Bike.BIKE_STAGES : STAGES).map(s => `<option value="${s.n}" ${s.n === prog.stage ? 'selected' : ''}>Stage ${s.n}: ${esc(s.name)}</option>`).join('')}</select>
+      <label class="field"><span>Current ${bike ? mach().lc : 'run'} stage</span>
+        <select id="stageSel">${(bike ? mach().stages : STAGES).map(s => `<option value="${s.n}" ${s.n === prog.stage ? 'selected' : ''}>Stage ${s.n}: ${esc(s.name)}</option>`).join('')}</select>
         <small>Moving yourself by hand resets the green count.</small></label>
     </section>
 
@@ -714,7 +725,7 @@ function workoutHTML() {
   return `<div class="wk" data-type="warmup">
     <div class="wk-flash"></div>
     <header class="wk-top">
-      <div class="wk-id"><b>${wk.mode === 'bike' ? 'Ride · ' : ''}Stage ${wk.stage}</b><span id="wkEl">0:00</span></div>
+      <div class="wk-id"><b>${wk.mode === 'bike' ? `${mach().label} · ` : ''}Stage ${wk.stage}</b><span id="wkEl">0:00</span></div>
       ${TIME_SCALE > 1 ? `<span class="wk-fast">×${TIME_SCALE} test</span>` : ''}
       <button class="wk-end" data-act="wk-end">End</button>
     </header>
@@ -738,10 +749,10 @@ function segHint(seg) {
   if (wk?.mode === 'bike') {
     const z = Bike.zoneOf(seg.type);
     if (wk.setup && seg.type === 'steady') return wk.unit === 'level'
-      ? 'Find your steady level: <b>breathing harder, still talking in short sentences</b>, at 80–90 rpm. Remember the level.'
+      ? 'Find your steady level: <b>breathing harder, still talking in short sentences</b>' + (mach().rpm ? `,${mach().rpm}` : '') + '. Remember the level.'
       : 'Find your steady effort: <b>breathing harder, still talking in short sentences</b>. Note the watts you settle on.';
     const w = zoneW(z, wk.power, wk.unit);
-    return w ? `Aim for <b>${fmtP(w, wk.unit)}</b>${wk.unit === 'level' ? ' at 80–90 rpm' : ''} · ${Bike.ZONES[z].talk}` : Bike.ZONES[z].talk;
+    return w ? `Aim for <b>${fmtP(w, wk.unit)}</b>${wk.unit === 'level' ? mach().rpm : ''} · ${mach().zones[z].talk}` : mach().zones[z].talk;
   }
   const t = state.treadmill;
   if (seg.fiveK) return `<b>${t.runSpeed} ${spUnit()}</b> · stop at <b>${imp() ? '3.11 mi' : '5.00 km'}</b> on the display, then tap Skip`;
@@ -803,7 +814,7 @@ function updateWorkoutUI() {
   $('#wkEl').textContent = fmtElapsed(w.pos);
   $('#wkLeft').textContent = `${fmtClock(w.total - w.pos)} left`;
   const k = wk.mode === 'bike'
-    ? Bike.bikeKcal(msToSec(w.byType), wk.unit === 'watts' ? wk.power : null, state.profile.weight, units())
+    ? Bike.bikeKcal(msToSec(w.byType), wk.unit === 'watts' ? wk.power : null, state.profile.weight, units(), mach().key)
     : sessionTotals({ runSec: w.spent.run / 1000, walkSec: w.spent.walk / 1000 }, state.treadmill, state.profile.weight, units()).kcal;
   $('#wkKcal').textContent = `${k} kcal`;
   const col = matrixCol(wk.segs, w.pos);
@@ -902,6 +913,7 @@ function bikeDraftFrom(x) {
   return {
     id: uid(),
     mode: 'bike',
+    machine: mach().key,
     at: new Date(x.startedAt).toISOString(),
     endedAt: new Date().toISOString(),
     stage: x.stage,
@@ -951,13 +963,13 @@ function hurtHTML() {
   const p = hurt.pain;
   const bike = wk?.mode === 'bike';
   return `<h3>${bike ? 'Ease right off' : 'Slow to a walk'}</h3>
-    <p>${bike ? 'Drop the resistance and spin easy.' : 'Bring the treadmill down to walking speed.'} The timer is paused.</p>
+    <p>${bike ? mach().ease : 'Bring the treadmill down to walking speed.'} The timer is paused.</p>
     <span class="eyebrow">How bad is it right now?</span>
     <div class="painpad">${[...Array(11)].map((_, n) => `<button class="pp ${zone(n)}" data-act="hurt-pain" data-v="${n}" aria-pressed="${p === n}">${n}</button>`).join('')}</div>
     <span class="eyebrow">Where?</span>
     <div class="chips">${WHERE.map(x => `<button class="chip" data-act="hurt-where" data-v="${x}" aria-pressed="${hurt.where.has(x)}">${x}</button>`).join('')}</div>
     ${p >= 5 ? `<p class="stop">That’s a red day. Stop here${bike ? '' : ', walk it off,'} and log it.</p>` : ''}
-    ${p >= 3 && p < 5 ? `<p class="note warn">${bike ? 'Spin easy' : 'Walk'} for a minute. If it settles, carry on. If it doesn’t, end it here.</p>` : ''}
+    ${p >= 3 && p < 5 ? `<p class="note warn">${bike ? mach().easeShort : 'Walk'} for a minute. If it settles, carry on. If it doesn’t, end it here.</p>` : ''}
     <div class="sheet-btns">
       ${p !== null && p < 5 ? '<button class="btn primary" data-act="hurt-resume">Carry on</button>' : ''}
       <button class="btn ${p >= 5 ? 'danger' : ''}" data-act="hurt-end" ${p === null ? 'disabled' : ''}>End workout</button>
@@ -1030,11 +1042,12 @@ function bikeCheckinHTML() {
   const d = draft;
   const unit = Bike.sessionUnit(d), U = Bike.UNITS[unit];
   const p = d.setPower || d.power;
-  const kcal = d.kcalBike ?? Bike.bikeKcal(d.byType, unit === 'watts' ? p : null, d.weight, d.units);
+  const kcal = d.kcalBike ?? Bike.bikeKcal(d.byType, unit === 'watts' ? p : null, d.weight, d.units, d.machine);
+  const m = machOf(d);
   const needW = d.setup && !!U;
   return `<div class="ci">
     <header class="ci-head">
-      <span class="eyebrow">Ride · stage ${d.stage} · ${fmtTime(d.at)}</span>
+      <span class="eyebrow">${m.label} · stage ${d.stage} · ${fmtTime(d.at)}</span>
       <h1>How did that go?</h1>
       <dl class="stats">
         <div><dt>Time</dt><dd>${Math.round(d.totalSec / 60)}<small>min</small></dd></div>
@@ -1046,16 +1059,16 @@ function bikeCheckinHTML() {
     </header>
 
     ${needW ? `<section class="q"><h2>Your steady ${unit === 'level' ? 'level' : 'watts'}</h2>
-      <p class="note">${unit === 'level' ? 'The level you rode the steady part at, at 80–90 rpm.' : 'The watts you held in the steady part, from the bike’s screen.'} Every target from now on is set from this.</p>
+      <p class="note">${unit === 'level' ? m.levelNote : 'The watts you held in the steady part, from the bike’s screen.'} Every target from now on is set from this.</p>
       <div class="inp ci-w"><input id="ciW" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="${unit === 'level' ? 'e.g. 11' : 'e.g. 90'}" value="${d.setPower ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
     </section>` : ''}
 
-    <section class="q"><h2>Calories on the bike’s screen <small>optional</small></h2>
-      <p class="note">Only if you entered your weight on the bike before starting. Otherwise leave it blank and the app estimates.</p>
+    <section class="q"><h2>Calories on the ${m.lc}’s screen <small>optional</small></h2>
+      <p class="note">Only if you entered your weight on the ${m.lc} before starting. Otherwise leave it blank and the app estimates.</p>
       <div class="inp ci-w"><input id="ciCal" type="number" inputmode="numeric" min="10" max="2000" step="1" placeholder="e.g. 250" value="${d.kcalBike ?? ''}"><em>kcal</em></div>
     </section>
 
-    <section class="q"><h2>Worst pain during the ride</h2>
+    <section class="q"><h2>Worst pain during the ${m.noun}</h2>
       <p class="note">0 = nothing at all. Count any ache: knees, Achilles, hips, back.</p>
       <div class="painpad">${[...Array(11)].map((_, n) => `<button class="pp ${zone(n)}" data-act="ci-pain" data-v="${n}" aria-pressed="${d.pain === n}">${n}</button>`).join('')}</div>
       <div class="scale-key"><span class="g">0–2 fine</span><span class="a">3–4 careful</span><span class="r">5+ stop</span></div>
@@ -1077,7 +1090,7 @@ function bikeCheckinHTML() {
     </section>
 
     <section class="q"><h2>Notes <small>optional</small></h2>
-      <textarea id="ciNotes" rows="2" maxlength="500" placeholder="Bike number, seat height, right Achilles fine…">${esc(d.notes)}</textarea>
+      <textarea id="ciNotes" rows="2" maxlength="500" placeholder="${m.notesHint}">${esc(d.notes)}</textarea>
     </section>
 
     <button class="start inline" data-act="ci-save"><span>Save</span></button>
@@ -1087,30 +1100,31 @@ function bikeCheckinHTML() {
 function bikeResultHTML(s, before) {
   const c = s.prelim;
   const unit = Bike.sessionUnit(s);
+  const m = machOf(s), top = m.stages.length;
   let title, body;
   if (c === 'green') {
     const sim = JSON.parse(JSON.stringify(state));
     sim.sessions.find(x => x.id === s.id).morning = 'same';
     const after = Bike.bikeProgression(sim);
     title = 'Green';
-    if (after.goal && !before.goal) body = 'If tomorrow morning feels normal, that’s your second green ride at stage 12. <b>Goal reached.</b>';
-    else if (after.stage > before.stage) body = `If you feel normal tomorrow morning, you move up to <b>Stage ${after.stage}: ${esc(Bike.bikeStage(after.stage).name)}</b>.`;
+    if (after.goal && !before.goal) body = `If tomorrow morning feels normal, that’s your second green ${m.noun} at stage ${top}. <b>Goal reached.</b>`;
+    else if (after.stage > before.stage) body = `If you feel normal tomorrow morning, you move up to <b>Stage ${after.stage}: ${esc(Bike.bikeStage(after.stage, m.key).name)}</b>.`;
     else body = 'Pain-free and on target. Tomorrow morning’s check-in confirms it, then one more green moves you up.';
     if (s.setPower) body += ` Your ${STEADY_WORD[unit]} is set at <b>${fmtP(s.setPower, unit)}</b>.`;
     else if (after.power && before.power && after.power > before.power) body += ` It felt easy, so your ${STEADY_WORD[unit]} goes up to <b>${fmtP(after.power, unit)}</b> once that’s confirmed.`;
   } else if (c === 'amber') {
     title = 'Amber';
-    const why = !s.completed ? 'You stopped short of the full ride. ' : s.pain >= 3 ? `Pain reached ${s.pain}/10. ` : s.effort === 'hard' ? 'The targets felt hard. ' : '';
+    const why = !s.completed ? `You stopped short of the full ${m.noun}. ` : s.pain >= 3 ? `Pain reached ${s.pain}/10. ` : s.effort === 'hard' ? 'The targets felt hard. ' : '';
     body = `${why}You’ll repeat Stage ${s.stage} next time.${s.effort === 'hard' && !s.setPower && Bike.UNITS[unit] ? ` Your targets ease off ${unit === 'level' ? 'one level' : '5 W'} once tomorrow’s check is in.` : ''} That’s the plan working, not a setback.`;
     if (s.setPower) body += ` Your ${STEADY_WORD[unit]} is set at <b>${fmtP(s.setPower, unit)}</b>.`;
   } else {
     title = 'Red';
-    body = `Take 2 days off the bike. Walking is fine. Your next ride drops back to <b>Stage ${Math.max(1, s.stage - 1)}</b>. If the pain lasts more than a few days or gets worse, get it checked by a physio.`;
+    body = `Take 2 days off the ${m.lc}. Walking is fine. Your next ${m.noun} drops back to <b>Stage ${Math.max(1, s.stage - 1)}</b>. If the pain lasts more than a few days or gets worse, get it checked by a physio.`;
   }
   const p = s.setPower || s.power;
   return `<div class="result ${c}">
     <div class="orb"></div>
-    <span class="eyebrow">Ride · stage ${s.stage} logged</span>
+    <span class="eyebrow">${m.label} · stage ${s.stage} logged</span>
     <h1>${title}</h1>
     <p>${body}</p>
     <dl class="stats">
@@ -1163,15 +1177,15 @@ function celebrate(stage, bike = false) {
     openSheet(`<div class="celebrate">
       <span class="eyebrow">Unlocked</span>
       <div class="cel-num">Stage ${stage}</div>
-      <p>${esc(bike ? Bike.bikeStage(stage).name : stageInfo(stage).name)}</p>
-      ${matrixHTML(bike ? Bike.bikeSegments(stage) : buildSegments(stage, state.treadmill, units()))}
+      <p>${esc(bike ? Bike.bikeStage(stage, mach().key).name : stageInfo(stage).name)}</p>
+      ${matrixHTML(bike ? Bike.bikeSegments(stage, mach().key) : buildSegments(stage, state.treadmill, units()))}
       <button class="btn primary wide" data-act="sheet-close">Let’s go</button>
     </div>`);
   } else {
     openSheet(`<div class="celebrate">
       <span class="eyebrow">Goal reached</span>
       <div class="cel-num">${bike ? '★' : '5K'}</div>
-      <p>${bike ? 'Two green 35-minute strong rides. Pain-free.' : 'Two green 5Ks in a row. Comfortable, and pain-free.'}</p>
+      <p>${bike ? `${mach().goal}. Pain-free.` : 'Two green 5Ks in a row. Comfortable, and pain-free.'}</p>
       <button class="btn primary wide" data-act="sheet-close">Nice</button>
     </div>`);
   }
@@ -1224,7 +1238,8 @@ function liftPlanFor(st, withRun) {
   for (const o of [{ trim: false, short: false }, { trim: true, short: false }, { trim: true, short: true }]) {
     const plan = Lift.buildLift(state, st, { trim: o.trim, noLegs: st.legsRest });
     const primer = stepsMin(Lift.primerSteps({ weak: st.weak, test: st.plankDue, warm: !withRun, short: o.short }));
-    const stretch = stepsMin(o.short ? Lift.runStretchSteps() : Lift.dayStretchSteps(st.day, st.weak));
+    const hip = { hip: !!state.lift.hipCare };
+    const stretch = stepsMin(o.short ? Lift.runStretchSteps(hip) : Lift.dayStretchSteps(st.day, st.weak, hip));
     const lift = Lift.liftMinutes(plan);
     const total = ride + (withRun ? CHANGE_MIN : 0) + primer + lift + stretch;
     pick = { ...o, plan, ride, primer, lift, stretch, total, over: total > maxMin() };
@@ -1276,21 +1291,22 @@ function liftCardHTML(st, block) {
   if (st.shoulders === 'painful') notes.push('<b class="r">Shoulders painful.</b> Presses and raises swapped for the gentlest options.');
   else if (st.shoulders === 'sore') notes.push('<b class="a">Shoulders a bit sore.</b> No weight increases on presses and raises.');
   if (st.legsRest) notes.push(`<b class="a">Legs resting</b> after your red ${st.legsRestAfter}. Upper body only.`);
+  if (state.lift.hipCare && Lift.DAY_LIST(st.day).some(t => t.ex === 'hipabd')) notes.push('<b>Outer hip:</b> no leg push-out for now. Settings › Lifting turns it back on.');
   if (st.plankDue) notes.push('<b>Side plank test</b> in today’s primer.');
   const setup = plan.blocks.flatMap(b => b.items).filter(i => Lift.target(state, i.ex, st).setup).length;
   if (setup) notes.push(`<b>Setup:</b> you’ll pick starting weights for ${setup} exercise${setup > 1 ? 's' : ''}.`);
   if (st.early) notes.push('First 2 weeks: finish every set with about 3 reps left in the tank.');
-  if (fit.over) notes.push(`<b class="a">About ${fit.total} min, over your ${maxMin()}.</b> Even trimmed, today’s long ${isBike() ? 'ride' : 'run'} plus a lift doesn’t fit. Running low? Do the ${isBike() ? 'ride' : 'run'} today and the lift tomorrow.`);
+  if (fit.over) notes.push(`<b class="a">About ${fit.total} min, over your ${maxMin()}.</b> Even trimmed, today’s long ${isBike() ? mach().noun : 'run'} plus a lift doesn’t fit. Running low? Do the ${isBike() ? mach().noun : 'run'} today and the lift tomorrow.`);
   else if (fit.short) notes.push(`Trimmed to fit your ${maxMin()} min: 2 sets each, and a shorter primer and stretch.`);
   else if (trim) notes.push(`Trimmed to fit your ${maxMin()} min: 2 sets each.`);
   const days = Lift.ORDER.map(d => `<button data-act="lift-day" data-v="${d}" aria-pressed="${d === st.day}">${d}</button>`).join('');
   return `<section class="lift-card">
     <div class="hero-top"><span class="eyebrow">Lift · Day ${st.day}</span><div class="daypick" role="group" aria-label="Lift day">${days}</div></div>
     <ol class="lift-list">${rows}</ol>
-    <p class="lift-meta">${isBike() ? 'Ride' : 'Run'} ${fit.ride} + primer ${fit.primer} + lift ${fit.lift} + stretch ${fit.stretch} + ${CHANGE_MIN} between ≈ <b>${fit.total} min</b> total</p>
+    <p class="lift-meta">${isBike() ? mach().label : 'Run'} ${fit.ride} + primer ${fit.primer} + lift ${fit.lift} + stretch ${fit.stretch} + ${CHANGE_MIN} between ≈ <b>${fit.total} min</b> total</p>
     ${notes.length ? `<ul class="lift-notes">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}
     <div class="lift-only"><button class="btn" data-act="lift-only" ${block ? 'disabled' : ''}>Lift only</button><small>${isBike()
-      ? 'Starts with 5 min of easy spinning on the bike.'
+      ? mach().liftOnly
       : 'Starts with 5 min on the bike. Has leg work, so leave 48 h before your next run.'}</small></div>
   </section>`;
 }
@@ -1299,7 +1315,7 @@ function afterRunHTML() {
   const st = liftCtx();
   if (st.liftedToday || store.loadLift()) return '<button class="start inline" data-act="result-done"><span>Done</span></button>';
   return `<button class="start inline lift-go" data-act="lift-go"><span>Lift</span><small>Day ${st.day} · primer, lift, stretch</small></button>
-    <div class="row after-run"><button class="btn" data-act="run-stretch">Stretch · ${stepsMin(Lift.runStretchSteps())} min</button><button class="btn ghost" data-act="result-done">Done for today</button></div>`;
+    <div class="row after-run"><button class="btn" data-act="run-stretch">Stretch · ${stepsMin(Lift.runStretchSteps({ hip: !!state.lift.hipCare }))} min</button><button class="btn ghost" data-act="result-done">Done for today</button></div>`;
 }
 
 // -- session ---------------------------------------------------------------------
@@ -1350,7 +1366,7 @@ function startLift(withRun) {
 
 function startGuide(phase) {
   const steps = phase === 'primer' ? Lift.primerSteps({ weak: ls.weak, test: !!ls.test, warm: ls.warm, short: !!ls.short })
-    : ls.kind === 'stretch' || ls.short ? Lift.runStretchSteps() : Lift.dayStretchSteps(ls.day, ls.weak);
+    : ls.kind === 'stretch' || ls.short ? Lift.runStretchSteps({ hip: !!state.lift.hipCare }) : Lift.dayStretchSteps(ls.day, ls.weak, { hip: !!state.lift.hipCare });
   ls.phase = phase;
   restT = null;
   guide = new Guide(steps, { scale: TIME_SCALE });
@@ -1990,11 +2006,11 @@ async function changeStage(n, el) {
   const bike = isBike();
   const prog = bike ? Bike.bikeProgression(state) : progression(state);
   if (n === prog.stage) return;
-  const name = bike ? Bike.bikeStage(n).name : stageInfo(n).name;
+  const name = bike ? Bike.bikeStage(n, mach().key).name : stageInfo(n).name;
   const ok = await ask(`Move to stage ${n}?`, `${esc(name)}. Your green count starts again from zero.`,
     [{ label: 'Cancel', value: false }, { label: 'Move', value: true, cls: 'primary' }]);
   if (!ok) { el.value = String(prog.stage); return; }
-  (bike ? state.bike.overrides : state.overrides).push({ at: new Date().toISOString(), stage: n });
+  (bike ? state.bike.overrides : state.overrides).push({ at: new Date().toISOString(), stage: n, ...(bike ? { machine: mach().key } : {}) });
   persist();
   render();
   toast(`Now on stage ${n}`);
@@ -2039,8 +2055,8 @@ const actions = {
     const rest = c.rest;
     if (c.bike) {
       if (rest) {
-        const ok = await ask('Your body flagged pain', `Your last ride was a red day. The plan says rest until ${fmtDay(rest.until)}.`,
-          [{ label: 'Rest instead', value: false, cls: 'primary' }, { label: 'Ride anyway', value: true }]);
+        const ok = await ask('Your body flagged pain', `Your last ${mach().noun} was a red day. The plan says rest until ${fmtDay(rest.until)}.`,
+          [{ label: 'Rest instead', value: false, cls: 'primary' }, { label: 'Go anyway', value: true }]);
         if (!ok) return;
       }
       return startWorkout(c);
@@ -2204,16 +2220,16 @@ const actions = {
       const unit = Bike.sessionUnit(d), U = Bike.UNITS[unit];
       if (d.setup && U) {
         const v = Number($('#ciW').value);
-        if (!(v >= U.min && v <= U.max)) return toast(unit === 'level' ? `Enter the level you rode, ${U.min} to ${U.max}` : `Enter the steady watts you held, ${U.min} to ${U.max}`);
+        if (!(v >= U.min && v <= U.max)) return toast(unit === 'level' ? `Enter the level you used, ${U.min} to ${U.max}` : `Enter the steady watts you held, ${U.min} to ${U.max}`);
         d.setPower = Math.round(v);
       }
       const calIn = $('#ciCal').value;
       const cal = calIn === '' ? null : Math.round(Number(calIn));
-      if (cal !== null && !(cal >= 10 && cal <= 2000)) return toast('Bike calories should be 10 to 2,000, or leave it blank');
+      if (cal !== null && !(cal >= 10 && cal <= 2000)) return toast('Calories should be 10 to 2,000, or leave it blank');
       d.kcalBike = cal;
       d.notes = $('#ciNotes').value.trim().slice(0, 500);
       if (d.pain === 0) { d.where = []; d.worseDuring = false; }
-      d.kcal = cal ?? Bike.bikeKcal(d.byType, unit === 'watts' ? d.setPower || d.power : null, d.weight, d.units);
+      d.kcal = cal ?? Bike.bikeKcal(d.byType, unit === 'watts' ? d.setPower || d.power : null, d.weight, d.units, d.machine);
       d.prelim = prelimColor(d);
       const before = Bike.bikeProgression(state);
       state.sessions.push(d);
@@ -2260,10 +2276,12 @@ const actions = {
   },
 
   cardio(el) {
-    state.cardio = el.dataset.v === 'run' ? 'run' : 'bike';
+    const v = el.dataset.v;
+    state.cardio = v === 'run' ? 'run' : 'bike';
+    if (v !== 'run') state.bike.machine = v;
     persist();
     render();
-    toast(isBike() ? 'Cardio: <b>bike</b>' : 'Cardio: <b>treadmill run</b>');
+    toast(`Cardio: <b>${isBike() ? mach().lc : 'treadmill run'}</b>`);
   },
 
   async 'test-refresh'() {
@@ -2278,27 +2296,27 @@ const actions = {
     state.bike.unit = el.dataset.v;
     persist();
     render();
-    toast(state.bike.unit === 'feel' ? 'Bike: riding <b>by feel</b>' : `Bike targets in <b>${state.bike.unit === 'level' ? 'levels' : 'watts'}</b>`);
+    toast(state.bike.unit === 'feel' ? `${mach().name}: going <b>by feel</b>` : `${mach().name} targets in <b>${state.bike.unit === 'level' ? 'levels' : 'watts'}</b>`);
   },
 
   'power-set'() {
     const unit = bunit(), U = Bike.UNITS[unit];
     const v = Number($('#powerIn').value);
     if (!U || !(v >= U.min && v <= U.max)) return toast(unit === 'level' ? `Enter a level from ${U.min} to ${U.max}` : `Enter watts from ${U.min} to ${U.max}`);
-    state.bike.overrides.push({ at: new Date().toISOString(), power: Math.round(v), unit });
+    state.bike.overrides.push({ at: new Date().toISOString(), power: Math.round(v), unit, machine: mach().key });
     persist();
     render();
     toast(`${unit === 'level' ? 'Steady level' : 'Steady power'} set to <b>${fmtP(Math.round(v), unit)}</b>`);
   },
 
   async 'power-redo'() {
-    const ok = await ask('Redo the setup ride?', bunit() === 'level' ? 'Your next ride finds your steady level again by feel, and you’ll enter the level afterwards.' : 'Your next ride finds your steady power again by feel, and you’ll enter the watts afterwards.',
+    const ok = await ask(`Redo the setup ${mach().noun}?`, bunit() === 'level' ? `Your next ${mach().noun} finds your steady level again by feel, and you’ll enter the level afterwards.` : 'Your next ride finds your steady power again by feel, and you’ll enter the watts afterwards.',
       [{ label: 'Cancel', value: false }, { label: 'Redo it', value: true, cls: 'primary' }]);
     if (!ok) return;
-    state.bike.overrides.push({ at: new Date().toISOString(), power: null, unit: bunit() });
+    state.bike.overrides.push({ at: new Date().toISOString(), power: null, unit: bunit(), machine: mach().key });
     persist();
     render();
-    toast('Next ride is a setup ride');
+    toast(`Next ${mach().noun} is a setup ${mach().noun}`);
   },
 
   set(el) {
@@ -2893,7 +2911,7 @@ document.addEventListener('input', e => {
     const unit = Bike.sessionUnit(draft);
     const calIn = $('#ciCal')?.value || '', cal = Number(calIn), v = Number($('#ciW')?.value);
     const k = calIn !== '' && cal >= 10 && cal <= 2000 ? Math.round(cal)
-      : Bike.bikeKcal(draft.byType, unit === 'watts' ? (v >= 30 && v <= 400 ? v : draft.power) : null, draft.weight, draft.units);
+      : Bike.bikeKcal(draft.byType, unit === 'watts' ? (v >= 30 && v <= 400 ? v : draft.power) : null, draft.weight, draft.units, draft.machine);
     $('#ciK').innerHTML = `${k}<small>kcal</small>`;
     return;
   }

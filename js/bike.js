@@ -1,6 +1,6 @@
-// The bike plan: 12 stages you unlock with green rides, and targets that
-// grow with you, in watts or in resistance levels. Same traffic lights as the
-// runs (plan.js).
+// The bike and elliptical plans: stages you unlock with green sessions, and
+// targets that grow with you, in watts or in resistance levels. Same traffic
+// lights as the runs (plan.js).
 import { DAY, finalColor, dayStart, daysBetween } from './plan.js';
 import { kgOf } from './calories.js';
 
@@ -46,12 +46,82 @@ export const BIKE_STAGES = [
   { n: 12, name: '35 min strong, non-stop', main: [[ST, 35]], milestone: 'The goal' },
 ];
 
-export const bikeStage = n => BIKE_STAGES[Math.min(BIKE_MAX, Math.max(1, n)) - 1];
+// The elliptical plan (Oct 30): short hard minutes, because the bike hurt your
+// outer hip and these fit your gym limit. It builds to 10 × (1 hard / 1 easy),
+// the routine in Hood et al. 2011: sedentary adults averaging 45, three times
+// a week. Calorie rates: the 2024 Adult Compendium has the elliptical at 5.0
+// METs (moderate) and 9.0 (vigorous); easy and strong are estimates around those.
+export const ELLIPTICAL_ZONES = {
+  easy: { label: 'Easy', pct: 0.6, met: 4, talk: 'Easy pace. You could chat all day.' },
+  steady: { label: 'Steady', pct: 1, met: 5, talk: 'Breathing harder, still talking in short sentences.' },
+  strong: { label: 'Strong', pct: 1.15, met: 7, talk: 'A few words at a time.' },
+  hard: { label: 'Hard', pct: 1.35, met: 9, talk: 'Big effort, a few words at most. Hard, not all-out.' },
+};
 
-export function bikeSegments(n) {
-  const segs = [{ type: 'warmup', zone: E, clip: 'bikewarm', sec: WARM_MIN * 60 }];
-  for (const [zone, min] of bikeStage(n).main) segs.push({ type: zone, zone, clip: zone, sec: min * 60 });
-  segs.push({ type: 'cooldown', zone: E, clip: 'bikecool', sec: COOL_MIN * 60 });
+// Stages 1–7 leave room for a full lift inside 70 minutes. Stage 8 doesn't.
+export const ELLIPTICAL_STAGES = [
+  { n: 1, name: '12 min steady', main: [[S, 12]] },
+  { n: 2, name: '4 × (1 hard / 2 easy)', main: rep(4, [H, 1], [E, 2]), milestone: 'Intervals start' },
+  { n: 3, name: '5 × (1 hard / 2 easy)', main: rep(5, [H, 1], [E, 2]) },
+  { n: 4, name: '5 × (1 hard / 1½ easy)', main: rep(5, [H, 1], [E, 1.5]), milestone: 'Shorter breaks' },
+  { n: 5, name: '6 × (1 hard / 1½ easy)', main: rep(6, [H, 1], [E, 1.5]) },
+  { n: 6, name: '7 × (1 hard / 1 easy)', main: rep(7, [H, 1], [E, 1]) },
+  { n: 7, name: '8 × (1 hard / 1 easy)', main: rep(8, [H, 1], [E, 1]) },
+  { n: 8, name: '10 × (1 hard / 1 easy)', main: rep(10, [H, 1], [E, 1]), milestone: 'The goal' },
+];
+
+// Everything that differs between the machines. Each keeps its own stage,
+// steady level and history.
+export const MACHINES = {
+  bike: {
+    key: 'bike', name: 'Bike', lc: 'bike', label: 'Ride', noun: 'ride', nouns: 'rides', Nouns: 'Rides', doing: 'Riding',
+    stages: BIKE_STAGES, zones: ZONES, shown: ['easy', 'steady', 'strong', 'hard'],
+    clips: { warm: 'bikewarm', cool: 'bikecool', easy: 'easy' },
+    rpm: ' at 80–90 rpm', ease: 'Drop the resistance and spin easy.', easeShort: 'Spin easy',
+    form: 'Keep about 80–90 rpm. Seat high enough that your knee stays slightly bent at the bottom.',
+    goal: 'Two green 35-minute strong rides',
+    keepGoing: 'Keep riding stage 12 two or three times a week, and your steady power keeps climbing.',
+    planNote: 'Every ride starts with 5 minutes of easy spinning and ends with a 3-minute cool-down. You move up after 2 green rides in a row, repeat on amber, and drop back one on red.',
+    levelHelp: 'Ride at a steady 80–90 rpm. Easy is 4 levels below your steady level, strong 2 above, hard 4 above. Levels differ between bike models, so try to use the same one.',
+    feelHelp: 'No numbers: easy = chatty, steady = short sentences, strong = a few words, hard = a big minute.',
+    levelNote: 'The level you rode the steady part at, at 80–90 rpm.',
+    notesHint: 'Bike number, seat height, right Achilles fine…',
+    liftOnly: 'Starts with 5 min of easy spinning on the bike.',
+  },
+  elliptical: {
+    key: 'elliptical', name: 'Elliptical', lc: 'elliptical', label: 'Elliptical', noun: 'session', nouns: 'sessions', Nouns: 'Sessions', doing: 'Working',
+    stages: ELLIPTICAL_STAGES, zones: ELLIPTICAL_ZONES, shown: ['easy', 'steady', 'hard'],
+    clips: { warm: 'ewarm', cool: 'ecool', easy: 'eeasy' },
+    rpm: '', ease: 'Drop the level and go easy.', easeShort: 'Go easy',
+    form: 'Stand tall, hips level, feet flat on the pedals. If your hip goes past 3 out of 10, ease off.',
+    goal: 'Two green sessions of 10 hard minutes',
+    keepGoing: 'Keep doing stage 8 two or three times a week, with a day in between, and your levels keep climbing.',
+    planNote: 'Every session starts with a 5-minute easy warm-up and ends with a 3-minute cool-down. Leave a day between interval sessions. You move up after 2 green sessions in a row, repeat on amber, and drop back one on red.',
+    levelHelp: 'Easy is 4 levels below your steady level, hard 4 above. Levels differ between machines, so try to use the same one.',
+    feelHelp: 'No numbers: easy = chatty, steady = short sentences, hard = a big minute.',
+    levelNote: 'The level you used in the steady part.',
+    notesHint: 'Machine number, level, left hip fine…',
+    liftOnly: 'Starts with 5 min easy on the elliptical or a brisk treadmill walk.',
+  },
+};
+export const machineKey = state => (MACHINES[state.bike?.machine] ? state.bike.machine : 'bike');
+export const machineOf = state => MACHINES[machineKey(state)];
+// The elliptical has no watts, so it falls back to levels.
+export const unitOf = state => {
+  const u = state.bike?.unit || 'level';
+  return u === 'watts' && machineKey(state) !== 'bike' ? 'level' : u;
+};
+
+export const bikeStage = (n, m = 'bike') => {
+  const list = MACHINES[m].stages;
+  return list[Math.min(list.length, Math.max(1, n)) - 1];
+};
+
+export function bikeSegments(n, m = 'bike') {
+  const { clips } = MACHINES[m];
+  const segs = [{ type: 'warmup', zone: E, clip: clips.warm, sec: WARM_MIN * 60 }];
+  for (const [zone, min] of bikeStage(n, m).main) segs.push({ type: zone, zone, clip: zone === E ? clips.easy : zone, sec: min * 60 });
+  segs.push({ type: 'cooldown', zone: E, clip: clips.cool, sec: COOL_MIN * 60 });
   return segs;
 }
 
@@ -81,14 +151,15 @@ export function bikeTotals(segs) {
 // Calories. With watts: the ACSM leg-cycling equation,
 // VO2 (ml/kg/min) = 1.8 × work rate (kg·m/min) / body mass + 7.
 // Without watts: a typical calorie rate for each effort zone.
-export function bikeKcal(secByType, power, weight, units) {
+export function bikeKcal(secByType, power, weight, units, m = 'bike') {
   const kg = kgOf(Number(weight) || 0, units);
+  const zones = (MACHINES[m] || MACHINES.bike).zones;
   let kcal = 0;
   for (const [type, sec] of Object.entries(secByType)) {
     const zone = zoneOf(type);
-    if (!ZONES[zone] || !sec) continue;
+    if (!zones[zone] || !sec) continue;
     const w = zoneWatts(zone, power);
-    const perMin = w ? (1.8 * w * 6.12 + 7 * kg) * 5 / 1000 : ZONES[zone].met * kg * 3.5 * 5 / 1000;
+    const perMin = w ? (1.8 * w * 6.12 + 7 * kg) * 5 / 1000 : zones[zone].met * kg * 3.5 * 5 / 1000;
     kcal += perMin * sec / 60;
   }
   return Math.round(kcal);
@@ -100,14 +171,17 @@ export const planSecByType = segs => segs.reduce((a, s) => ({ ...a, [s.type]: (a
 // a ride always leaves the stage and power consistent.
 export function bikeProgression(state, now = Date.now()) {
   const b = state.bike;
-  const unit = b.unit || 'level';
+  const m = machineKey(state);
+  const top = MACHINES[m].stages.length;
+  const onThis = x => (x.machine || 'bike') === m;
+  const unit = unitOf(state);
   const u = UNITS[unit];
   const events = [
-    ...(b.overrides || []).map(o => ({ t: Date.parse(o.at), o })),
-    ...state.sessions.filter(s => s.mode === 'bike').map(s => ({ t: Date.parse(s.at), s })),
+    ...(b.overrides || []).filter(onThis).map(o => ({ t: Date.parse(o.at), o })),
+    ...state.sessions.filter(s => s.mode === 'bike' && onThis(s)).map(s => ({ t: Date.parse(s.at), s })),
   ].sort((x, y) => x.t - y.t);
 
-  let stage = b.startStage || 1;
+  let stage = m === 'bike' ? b.startStage || 1 : 1;
   let power = null;
   let streak = 0, reds = 0, goal = false;
   let lastT = null, lastRedT = null;
@@ -131,7 +205,7 @@ export function bikeProgression(state, now = Date.now()) {
       streak++;
       if (same && s.effort === 'easy' && power && !s.setPower) power = Math.min(u.max, power + u.step);
       if (streak >= 2) {
-        if (stage < BIKE_MAX) { stage++; streak = 0; } else goal = true;
+        if (stage < top) { stage++; streak = 0; } else goal = true;
       }
     } else if (c === 'amber') {
       reds = 0;

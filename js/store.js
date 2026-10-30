@@ -23,7 +23,8 @@ export const DEFAULTS = {
   sessions: [],
   overrides: [],
   // unit = what the bike's targets are in: 'level' (resistance level at
-  // 80–90 rpm), 'watts', or 'feel'. overrides = stage or steady value you set by hand
+  // 80–90 rpm), 'watts', or 'feel'. overrides = stage or steady value you set by hand.
+  // machine = 'bike' or 'elliptical' (set on load in app.js; sessions record theirs)
   bike: { unit: 'level', startStage: 1, overrides: [] },
   // strength: next = a day you picked by hand; swaps = your exercise swaps;
   // notes = machine notes; phase2 = null (not offered yet), true or false;

@@ -113,6 +113,8 @@ export function buildLift(state, st, { day = st.day, trim = false, noLegs = fals
   const blocks = [];
   for (const t of DAYS[day].list) {
     if (trim && t.optional) continue;
+    // Going easy on a sore outer hip: no leg push-out for now (Settings).
+    if (state.lift.hipCare && t.ex === 'hipabd') continue;
     const orig = p2[t.ex] || t.ex;
     const ex = resolveItem(state, orig, st);
     if (!ex || (noLegs && LEG.has(ex)) || blocks.some(b => b.items[0].ex === ex)) continue;
@@ -344,7 +346,7 @@ export function primerSteps({ weak, test, warm, short = false }) {
   const sets = short ? [2, 1] : [3, 2, 1];
   const sideName = { left: 'Left', right: 'Right' };
 
-  if (warm) s.push({ kind: 'warm', ex: 'warm', sec: 300, voice: 'next', beep: true, label: 'Bike or brisk treadmill walk' });
+  if (warm) s.push({ kind: 'warm', ex: 'warm', sec: 300, voice: 'next', beep: true, label: 'Cardio machine or brisk treadmill walk' });
   s.push(ready('plank', null));
   sets.forEach((n, k) => {
     if (k) s.push({ kind: 'rest', ex: 'plank', sec: 8, label: 'Short rest, knees down' });
@@ -412,19 +414,20 @@ function calves(out, sec) {
   }
 }
 
-export function runStretchSteps() {
+// hip = going easy on a sore outer hip, which leaves out the glute stretch.
+export function runStretchSteps({ hip = false } = {}) {
   const s = [];
   calves(s, 30);
   stretch(s, 'hipflexor', 30);
-  stretch(s, 'figure4', 30);
+  if (!hip) stretch(s, 'figure4', 30);
   return s.map(x => ({ ...x, lib: 'stretch' }));
 }
 
-export function dayStretchSteps(day, tight) {
+export function dayStretchSteps(day, tight, { hip = false } = {}) {
   const s = [];
   calves(s, 20);
   stretch(s, 'hipflexor', 30);
-  stretch(s, 'figure4', 30);
+  if (!hip) stretch(s, 'figure4', 30);
   stretch(s, 'sidereach', 30, { side: tight || 'left', sec: 15 });
   stretch(s, DAYS[day].stretch, 30);
   return s.map(x => ({ ...x, lib: 'stretch' }));

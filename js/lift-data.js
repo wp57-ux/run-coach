@@ -260,7 +260,7 @@ export const PHASE2 = {
 export const PRIMER = {
   warm: {
     name: 'Easy warm-up', fig: null,
-    cue: '5 minutes on the bike or a brisk treadmill walk, easy enough to chat.',
+    cue: '5 minutes on a cardio machine or a brisk treadmill walk, easy enough to chat.',
     why: 'Warms your muscles and joints up before any weight goes on.',
   },
   plank: {

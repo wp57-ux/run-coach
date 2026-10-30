@@ -4,11 +4,11 @@
 // this app's own prefix are ever touched here. The test copy (run-coach-test)
 // uses its own prefix, so the two never clear each other's caches.
 const NS = self.location.pathname.includes('-test/') ? 'rctest' : 'run-coach';
-const VERSION = `${NS}-v12`;
+const VERSION = `${NS}-v13`;
 const FONT_CACHE = `${NS}-fonts`;
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover',
-  'bikewarm', 'bikecool', 'easy', 'steady', 'strong', 'hard'];
+  'bikewarm', 'bikecool', 'ewarm', 'ecool', 'eeasy', 'easy', 'steady', 'strong', 'hard'];
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/plan.js', 'js/calories.js', 'js/audio.js', 'js/workout.js',
