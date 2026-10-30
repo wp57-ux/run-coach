@@ -16,7 +16,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '11 · Oct 30';
+const APP_VERSION = '12 · Oct 30';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -1208,6 +1208,7 @@ function liftCtx(now = Date.now()) {
   const r = sortedCardio().at(-1);
   st.legsRest = !!r && finalColor(r) === 'red' && (r.where || []).some(w => LEG_PAIN.includes(w));
   st.legsRestAfter = nounOf(r);
+  if (store.TEST) st.liftedToday = false;   // so a lift you logged today can't block trying new things
   return st;
 }
 
@@ -2994,13 +2995,13 @@ function addSetsSheet(pack) {
   }
   const recent = [...state.lifts].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 5);
   const match = recent.find(x => x.day === pack.day && Date.now() - Date.parse(x.at) < 3 * 864e5);
-  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const dateOf = t => new Date(t - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
   openSheet(`<h3>Add these sets?</h3>
     ${list}
     <label class="field"><span>Which workout</span><select id="addTo">
       ${recent.map(x => `<option value="${x.id}" ${x === match ? 'selected' : ''}>Day ${x.day} · ${fmtDay(x.at)}</option>`).join('')}
       <option value="new" ${match ? '' : 'selected'}>New Day ${pack.day} workout</option></select></label>
-    <label class="field" id="addDateF" ${match ? 'hidden' : ''}><span>Date</span><input id="addDate" type="date" max="${today}" value="${today}"></label>
+    <label class="field" id="addDateF" ${match ? 'hidden' : ''}><span>Date</span><input id="addDate" type="date" max="${dateOf(Date.now())}" value="${dateOf(Date.now() - 864e5)}"></label>
     <p class="note">If that workout already has one of these exercises, these sets replace the old ones.</p>
     <div class="sheet-btns"><button class="btn" data-act="sheet-close">Cancel</button><button class="btn primary" data-act="add-save">Add</button></div>`);
 }
