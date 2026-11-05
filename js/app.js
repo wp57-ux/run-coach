@@ -16,7 +16,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '13 · Oct 30';
+const APP_VERSION = '14 · Nov 5';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -41,6 +41,11 @@ delete state.lift.swaps.latraise;
 // bike), and go easy on that hip until you say it has settled.
 state.bike.machine ||= 'elliptical';
 state.lift.hipCare ??= true;
+// Nov 5: you asked for 45 s rests. Set once, so you can still change it in Settings.
+if (!state.lift.rest45) {
+  state.lift.rest = 45;
+  state.lift.rest45 = true;
+}
 let view = 'today';
 let wk = null;        // workout in progress
 let draft = null;     // finished workout awaiting its check-in
@@ -661,7 +666,7 @@ function settingsHTML() {
         <small>Cardio, primer, lift and stretch together. Over it, the lift drops to 2 sets each, then the primer and stretches get shorter.</small></div>
       <div class="field"><span>Rest between sets</span>
         <div class="seg">${Lift.REST_CHOICES.map(v => `<button data-act="set-num" data-path="lift.rest" data-v="${v}" aria-pressed="${Lift.mainRest(state) === v}">${v} s</button>`).join('')}</div>
-        <small>For the 3-set exercises. The 2-set ones rest 60 s.</small></div>
+        <small>For the 3-set exercises. The 2-set ones rest 60 s, or 45 s if you pick 45. Skip rest any time.</small></div>
       ${toggleHTML('lift.hipCare', 'Go easy on my outer hip', 'Leaves out the leg push-out machine and the figure-4 stretch. Turn it off once your hip has settled.')}
       ${state.lift.phase2 !== null ? toggleHTML('lift.phase2', 'Phase 2 exercises', 'Romanian deadlift, Bulgarian split squat, 45° back extension') : ''}
       ${Object.keys(state.lift.swaps).length ? `<button class="btn wide" data-act="swaps-reset">Undo my exercise swaps (${Object.keys(state.lift.swaps).length})</button>` : ''}
@@ -1064,7 +1069,7 @@ function bikeCheckinHTML() {
     </section>` : ''}
 
     <section class="q"><h2>Calories on the ${m.lc}’s screen <small>optional</small></h2>
-      <p class="note">Only if you entered your weight on the ${m.lc} before starting. Otherwise leave it blank and the app estimates.</p>
+      <p class="note">${m.calNote}</p>
       <div class="inp ci-w"><input id="ciCal" type="number" inputmode="numeric" min="10" max="2000" step="1" placeholder="e.g. 250" value="${d.kcalBike ?? ''}"><em>kcal</em></div>
     </section>
 

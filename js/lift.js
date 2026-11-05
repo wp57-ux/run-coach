@@ -103,11 +103,12 @@ export function resolveItem(state, orig, st) {
 export const LEG = new Set(['legpress', 'calfpress', 'hipthrust', 'legcurl', 'splitsquat', 'hipabd', 'seatedcalf', 'legext',
   'slcalf', 'slcalfbent', 'glutebridge', 'lyingcurl', 'sidelyingraise', 'rdl', 'bss']);
 
-export const REST_CHOICES = [60, 90, 120];
+export const REST_CHOICES = [45, 60, 90, 120];
 export const mainRest = state => (REST_CHOICES.includes(state.lift.rest) ? state.lift.rest : 90);
 
 // One block per exercise, done as straight sets. A trimmed day (long ride or
-// run first) drops the optional extras and does 2 sets instead of 3.
+// run first) drops the optional extras and does 2 sets instead of 3. 2-set
+// exercises rest 60 s, or less if your main rest is shorter.
 export function buildLift(state, st, { day = st.day, trim = false, noLegs = false } = {}) {
   const p2 = st.phase2 ? PHASE2[day] || {} : {};
   const blocks = [];
@@ -122,7 +123,7 @@ export function buildLift(state, st, { day = st.day, trim = false, noLegs = fals
     // "Stay on the machine" only holds if the exercise before is still the one it follows.
     const prev = DAYS[day].list[DAYS[day].list.indexOf(t) - 1];
     const same = t.same && orig === t.ex && ex === t.ex && blocks.at(-1)?.items[0].ex === prev?.ex ? t.same : null;
-    blocks.push({ key: blocks.length + 1, items: [{ orig, ex }], sets, rest: sets >= 3 ? mainRest(state) : 60, optional: !!t.optional, same });
+    blocks.push({ key: blocks.length + 1, items: [{ orig, ex }], sets, rest: sets >= 3 ? mainRest(state) : Math.min(60, mainRest(state)), optional: !!t.optional, same });
   }
   return { day, blocks };
 }

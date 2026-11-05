@@ -30,7 +30,7 @@ export const DEFAULTS = {
   // notes = machine notes; phase2 = null (not offered yet), true or false;
   // rest = seconds between sets of the 3-set exercises; maxMin = your limit
   // for a whole gym visit (ride, primer, lift and stretch)
-  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 90, maxMin: 70 },
+  lift: { next: null, swaps: {}, notes: {}, phase2: null, plankDue: false, rest: 45, maxMin: 70 },
   lifts: [],
   planks: [],
 };

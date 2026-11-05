@@ -87,6 +87,7 @@ export const MACHINES = {
     levelNote: 'The level you rode the steady part at, at 80–90 rpm.',
     notesHint: 'Bike number, seat height, right Achilles fine…',
     liftOnly: 'Starts with 5 min of easy spinning on the bike.',
+    calNote: 'Only if you entered your weight on the bike before starting. Otherwise leave it blank and the app estimates.',
   },
   elliptical: {
     key: 'elliptical', name: 'Elliptical', lc: 'elliptical', label: 'Elliptical', noun: 'session', nouns: 'sessions', Nouns: 'Sessions', doing: 'Working',
@@ -102,6 +103,8 @@ export const MACHINES = {
     levelNote: 'The level you used in the steady part.',
     notesHint: 'Machine number, level, left hip fine…',
     liftOnly: 'Starts with 5 min easy on the elliptical or a brisk treadmill walk.',
+    // Glave et al. 2018: ellipticals overestimate by about 100 kcal per 30 min.
+    calNote: 'Optional. Elliptical screens tend to read high, so leaving this blank and using the app’s estimate is usually closer.',
   },
 };
 export const machineKey = state => (MACHINES[state.bike?.machine] ? state.bike.machine : 'bike');
