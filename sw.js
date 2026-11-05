@@ -4,7 +4,7 @@
 // this app's own prefix are ever touched here. The test copy (run-coach-test)
 // uses its own prefix, so the two never clear each other's caches.
 const NS = self.location.pathname.includes('-test/') ? 'rctest' : 'run-coach';
-const VERSION = `${NS}-v14`;
+const VERSION = `${NS}-v15`;
 const FONT_CACHE = `${NS}-fonts`;
 const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminute', 'done', 'paused', 'resumed', 'test',
   'm5', 'm10', 'm15', 'm20', 'm25', 'm30', 'm35', 'm40', 'hold', 'relax', 'switch', 'next', 'restover',
@@ -12,7 +12,7 @@ const CLIPS = ['warmup', 'run', 'run5k', 'walk', 'cooldown', 'halfway', 'oneminu
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/plan.js', 'js/calories.js', 'js/audio.js', 'js/workout.js',
-  'js/lift.js', 'js/lift-data.js', 'js/guide.js', 'js/drawings.js', 'js/bike.js',
+  'js/lift.js', 'js/lift-data.js', 'js/guide.js', 'js/drawings.js', 'js/bike.js', 'js/sync.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   ...CLIPS.map(c => `audio/${c}.wav`),
 ];

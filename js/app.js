@@ -10,13 +10,14 @@ import { EX, JUMP_NAME } from './lift-data.js';
 import * as Lift from './lift.js';
 import * as Bike from './bike.js';
 import { Guide } from './guide.js';
+import * as Sync from './sync.js';
 
 // The drawings are nice to have: if they ever fail to load, the app still works.
 const { figure } = await import('./drawings.js').catch(() => ({ figure: () => '' }));
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '14 · Nov 5';
+const APP_VERSION = '15 · Nov 5';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -83,6 +84,7 @@ const zone = n => (n <= 2 ? 'zg' : n <= 4 ? 'za' : 'zr');
 
 function persist() {
   if (!store.save(state)) toast('Couldn’t save. Is the phone’s storage full?');
+  else Sync.schedule(() => state);
 }
 
 let toastTimer;
@@ -195,15 +197,16 @@ function cardioCtx(now = Date.now()) {
   }
   const prog = Bike.bikeProgression(state, now);
   const m = mach();
-  const segs = Bike.bikeSegments(prog.stage, m.key);
-  const t = Bike.bikeTotals(segs);
   const unit = bunit();
+  const setup = unit !== 'feel' && !prog.power;
+  const segs = Bike.bikeSegments(prog.stage, m.key, { setup });
+  const t = Bike.bikeTotals(segs);
   const power = unit !== 'feel' ? prog.power : null;
   return {
     bike: true, noun: m.noun, prog, info: Bike.bikeStage(prog.stage, m.key), segs, power, unit,
     totalMin: Math.round(t.totalSec / 60), workSec: t.workSec,
     kcal: Bike.bikeKcal(Bike.planSecByType(segs), unit === 'watts' ? power : null, state.profile.weight, units(), m.key),
-    rest: Bike.bikeRest(prog, now), setup: unit !== 'feel' && !prog.power,
+    rest: Bike.bikeRest(prog, now), setup,
   };
 }
 
@@ -225,7 +228,7 @@ function bikeHeroHTML(c) {
   const tip = c.setup
     ? c.unit === 'level'
       ? `This ${m.noun} sets your <b>steady level</b>. In the steady part, pick the level where you’re breathing harder but can still talk in short sentences, and remember it for the check-in.`
-      : 'Your first ride sets your <b>steady power</b>. In the steady part, settle on an effort where you’re breathing harder but can still talk in short sentences, then note the watts on the screen.'
+      : `This ${m.noun} sets your <b>steady power</b>. In the steady part, settle on an effort where you’re breathing harder but can still talk in short sentences, then note the watts on the screen.`
     : power ? `Targets: ${bikeTargetsHTML(power)}.` : m.feelHelp;
   return `<section class="hero">
       <div class="hero-top"><span class="eyebrow">Next ${m.noun} · Stage ${prog.stage}</span>${c.setup ? `<span class="tag">Setup ${m.noun}</span>` : info.milestone ? `<span class="tag">${esc(info.milestone)}</span>` : ''}</div>
@@ -457,7 +460,7 @@ function powerHTML(prog) {
       ${ps.length > 1 ? `<div class="power-spark">${sparkSVG(ps.slice(-20).map(x => x.power))}</div>` : ''}
       <p class="note">${unit === 'level'
         ? `${mach().Nouns} that feel easy move you up a level once the next-morning check confirms them. Hard ones take a level off.`
-        : 'Rides that feel easy add 5 W once the next-morning check confirms them. Hard ones take 5 W off.'}</p>
+        : `${mach().Nouns} that feel easy add 5 W once the next-morning check confirms them. Hard ones take 5 W off.`}</p>
     </section>`;
 }
 
@@ -550,11 +553,10 @@ function bikeSettingsHTML() {
   const bp = Bike.bikeProgression(state);
   const unit = bunit(), U = Bike.UNITS[unit], m = mach();
   const seg = [['level', 'Levels'], ['watts', 'Watts'], ['feel', 'By feel']]
-    .filter(([v]) => v !== 'watts' || m.key === 'bike')
     .map(([v, l]) => `<button data-act="bike-unit" data-v="${v}" aria-pressed="${unit === v}">${l}</button>`).join('');
   const help = {
     level: m.levelHelp,
-    watts: 'Every target is a share of your steady power: easy 60%, steady 100%, strong 115%, hard 135%. Watts differ a little between bike models.',
+    watts: m.wattsHelp,
     feel: m.feelHelp,
   }[unit];
   return `<section class="group"><h2>${m.name}</h2>
@@ -564,6 +566,26 @@ function bikeSettingsHTML() {
         <div class="row power-row"><div class="inp"><input id="powerIn" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="Set on your first ${m.noun}" value="${bp.power ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
         <button class="btn" data-act="power-set">Set</button></div></label>
       <button class="btn wide" data-act="power-redo">Redo the setup ${m.noun} next time</button>` : ''}
+    </section>`;
+}
+
+// "5 lifts and 1 cardio session"
+const historyText = (lifts, sessions) => `${lifts} lift${lifts === 1 ? '' : 's'} and ${sessions} cardio session${sessions === 1 ? '' : 's'}`;
+
+function cloudHTML() {
+  const c = Sync.config();
+  if (!c?.key) return `<section class="group"><h2>Cloud copy</h2>
+      <p class="note">Off. Ask Claude for a setup link: it keeps a private copy of your rides, lifts and check-ins, so they survive a lost phone and Claude can track them.</p>
+    </section>`;
+  const when = c.last ? `${fmtDay(c.last)}, ${fmtTime(c.last)}` : 'not yet';
+  const why = { offline: ' · it tries again when you’re back online', key: ' · the key was refused, ask Claude for a new link', failed: ' · it tries again shortly' }[c.error] || '';
+  return `<section class="group"><h2>Cloud copy</h2>
+      ${c.conflict
+        ? `<p class="note warn">The cloud copy has more history than this phone: ${historyText(c.conflict.lifts, c.conflict.sessions)}, from ${fmtDay(c.conflict.savedAt)}. Copying is paused so nothing gets lost.</p>
+      <div class="row"><button class="btn primary" data-act="cloud-restore">Restore from the cloud</button><button class="btn" data-act="cloud-force">Keep this phone’s data</button></div>`
+        : `<p class="note">On. Last copied: <b>${when}</b>${why}. Only this phone and your PC have the key.</p>
+      <div class="row"><button class="btn" data-act="cloud-now">Copy now</button><button class="btn" data-act="cloud-restore">Restore from the cloud</button></div>`}
+      <button class="btn ghost wide" data-act="cloud-off">Turn off on this phone</button>
     </section>`;
 }
 
@@ -684,6 +706,8 @@ function settingsHTML() {
       <label class="field"><input id="addCode" type="text" autocomplete="off" placeholder="Paste the link"></label>
       <button class="btn wide" data-act="add-paste">Add these sets</button>
     </section>
+
+    ${cloudHTML()}
 
     <section class="group"><h2>Your data</h2>
       <p class="note">Your runs and lifts are stored only on this phone. Export a backup now and then, because clearing Chrome’s data would wipe them.</p>
@@ -1064,8 +1088,8 @@ function bikeCheckinHTML() {
     </header>
 
     ${needW ? `<section class="q"><h2>Your steady ${unit === 'level' ? 'level' : 'watts'}</h2>
-      <p class="note">${unit === 'level' ? m.levelNote : 'The watts you held in the steady part, from the bike’s screen.'} Every target from now on is set from this.</p>
-      <div class="inp ci-w"><input id="ciW" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="${unit === 'level' ? 'e.g. 11' : 'e.g. 90'}" value="${d.setPower ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
+      <p class="note">${unit === 'level' ? m.levelNote : m.wattsNote} Every target from now on is set from this.</p>
+      <div class="inp ci-w"><input id="ciW" type="number" inputmode="numeric" min="${U.min}" max="${U.max}" step="${U.step}" placeholder="${unit === 'level' ? 'e.g. 11' : m.wattsEg}" value="${d.setPower ?? ''}"><em>${unit === 'level' ? 'level' : 'W'}</em></div>
     </section>` : ''}
 
     <section class="q"><h2>Calories on the ${m.lc}’s screen <small>optional</small></h2>
@@ -2298,10 +2322,10 @@ const actions = {
   },
 
   'bike-unit'(el) {
-    state.bike.unit = el.dataset.v;
+    state.bike[Bike.unitKey(state)] = el.dataset.v;
     persist();
     render();
-    toast(state.bike.unit === 'feel' ? `${mach().name}: going <b>by feel</b>` : `${mach().name} targets in <b>${state.bike.unit === 'level' ? 'levels' : 'watts'}</b>`);
+    toast(bunit() === 'feel' ? `${mach().name}: going <b>by feel</b>` : `${mach().name} targets in <b>${bunit() === 'level' ? 'levels' : 'watts'}</b>`);
   },
 
   'power-set'() {
@@ -2505,6 +2529,44 @@ const actions = {
     persist();
     render();
     toast('Back to the standard exercises');
+  },
+
+  async 'cloud-now'() {
+    const r = await Sync.push(state, {});
+    render();
+    toast(r.ok ? 'Copied to the cloud' : r.conflict ? 'Paused: the cloud copy has more history than this phone' : 'Couldn’t reach the cloud. It tries again later.');
+  },
+
+  async 'cloud-force'() {
+    const ok = await ask('Keep this phone’s data?', 'The cloud copy is replaced with what’s on this phone. Daily copies stay in the cloud for 4 months, so Claude can still recover the old one.',
+      [{ label: 'Cancel', value: false }, { label: 'Replace the cloud copy', value: true, cls: 'primary' }]);
+    if (!ok) return;
+    const r = await Sync.push(state, { force: true });
+    render();
+    toast(r.ok ? 'Cloud copy replaced' : 'Couldn’t reach the cloud. Try again in a bit.');
+  },
+
+  async 'cloud-restore'() {
+    if (wk || ls) return toast('Finish your workout first');
+    let cloud;
+    try { cloud = await Sync.pull(); } catch { return toast('Couldn’t reach the cloud. Try again in a bit.'); }
+    if (!cloud || cloud.empty || !cloud.state) return toast('Nothing in the cloud yet');
+    const n = s => historyText(s?.lifts?.length || 0, s?.sessions?.length || 0);
+    const ok = await ask('Restore from the cloud?', `This phone’s data is replaced with the copy from ${fmtDay(cloud.savedAt)}, ${fmtTime(cloud.savedAt)}: ${n(cloud.state)}. This phone has ${n(state)}.`,
+      [{ label: 'Cancel', value: false }, { label: 'Restore', value: true, cls: 'primary' }]);
+    if (!ok) return;
+    if (!store.save(cloud.state)) return toast('Couldn’t save. Is the phone’s storage full?');
+    Sync.restored();
+    location.reload();
+  },
+
+  async 'cloud-off'() {
+    const ok = await ask('Turn off the cloud copy?', 'This phone stops sending copies. The copy already in the cloud stays, and Claude can send a new setup link any time.',
+      [{ label: 'Keep it on', value: false, cls: 'primary' }, { label: 'Turn off', value: true }]);
+    if (!ok) return;
+    Sync.off();
+    render();
+    toast('Cloud copy off on this phone');
   },
 
   'add-paste'() {
@@ -3039,6 +3101,36 @@ function handleAddLink() {
 }
 window.addEventListener('hashchange', handleAddLink);
 
+// The one-time setup link for the cloud copy: #sync=<code>.
+async function handleSyncLink() {
+  const code = Sync.linkCode(location.hash);
+  if (!location.hash.startsWith('#sync=')) return;
+  history.replaceState(history.state, '', location.pathname + location.search);
+  if (!code) return toast('That link didn’t work. Ask Claude for a new one.');
+  if (wk || ls) return toast('Finish your workout first, then tap the link again.');
+  const ok = await ask('Turn on the cloud copy?', `After every change, a private copy of your rides, lifts and check-ins goes to your own storage at <b>${esc(Sync.host())}</b>. Only do this with a link Claude sent you.`,
+    [{ label: 'Cancel', value: false }, { label: 'Turn on', value: true, cls: 'primary' }]);
+  if (!ok) return;
+  const r = await Sync.pair(code);
+  if (!r.ok) return toast(r.error === 'used' ? 'That link was already used or is over 2 days old. Ask Claude for a new one.' : 'Couldn’t reach the cloud. Check your signal and tap the link again.', 5000);
+  let cloud = null;
+  try { cloud = await Sync.pull(); } catch {}
+  if (cloud?.state && Sync.count(cloud.state) - Sync.count(state) >= 3) {
+    render();
+    toast('Cloud copy on. The cloud has more history than this phone: Settings › Cloud copy to restore it.', 6000);
+    await Sync.push(state);
+    return render();
+  }
+  const p = await Sync.push(state);
+  render();
+  toast(p.ok ? 'Cloud copy on. Your data is copied.' : 'Cloud copy on. It copies as soon as you’re online.', 4000);
+}
+window.addEventListener('hashchange', handleSyncLink);
+window.addEventListener('online', () => Sync.schedule(() => state, 2000));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') Sync.flush(() => state);
+});
+
 // Updates. An installed app can sit open in the background for days and never
 // reload, so check for a new version whenever it comes back on screen, and
 // switch to it straight away, unless you're mid-workout (then it waits).
@@ -3067,3 +3159,5 @@ if ('serviceWorker' in navigator) {
 
 render();
 handleAddLink();
+handleSyncLink();
+Sync.schedule(() => state, 3000);

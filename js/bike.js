@@ -88,6 +88,9 @@ export const MACHINES = {
     notesHint: 'Bike number, seat height, right Achilles fine…',
     liftOnly: 'Starts with 5 min of easy spinning on the bike.',
     calNote: 'Only if you entered your weight on the bike before starting. Otherwise leave it blank and the app estimates.',
+    wattsHelp: 'Every target is a share of your steady power: easy 60%, steady 100%, strong 115%, hard 135%. Watts differ a little between bike models.',
+    wattsNote: 'The watts you held in the steady part, from the bike’s screen.',
+    wattsEg: 'e.g. 90',
   },
   elliptical: {
     key: 'elliptical', name: 'Elliptical', lc: 'elliptical', label: 'Elliptical', noun: 'session', nouns: 'sessions', Nouns: 'Sessions', doing: 'Working',
@@ -105,24 +108,33 @@ export const MACHINES = {
     liftOnly: 'Starts with 5 min easy on the elliptical or a brisk treadmill walk.',
     // Glave et al. 2018: ellipticals overestimate by about 100 kcal per 30 min.
     calNote: 'Optional. Elliptical screens tend to read high, so leaving this blank and using the app’s estimate is usually closer.',
+    wattsHelp: 'Every target is a share of your steady watts: easy 60%, steady 100%, hard 135%. Watts differ between machines, so try to use the same one. Calories still come from effort, not watts: no formula turns elliptical watts into calories reliably.',
+    wattsNote: 'The watts you held in the steady part, from the elliptical’s screen.',
+    wattsEg: 'e.g. 150',
   },
 };
 export const machineKey = state => (MACHINES[state.bike?.machine] ? state.bike.machine : 'bike');
 export const machineOf = state => MACHINES[machineKey(state)];
-// The elliptical has no watts, so it falls back to levels.
+// Each machine has its own unit: your gym's bikes show no watts (unit), the
+// elliptical does (ellUnit, Nov 5: watts unless you pick otherwise).
 export const unitOf = state => {
-  const u = state.bike?.unit || 'level';
-  return u === 'watts' && machineKey(state) !== 'bike' ? 'level' : u;
+  const b = state.bike || {};
+  return machineKey(state) === 'bike' ? b.unit || 'level' : b.ellUnit || 'watts';
 };
+export const unitKey = state => (machineKey(state) === 'bike' ? 'unit' : 'ellUnit');
+const SETUP_MIN = 5;
 
 export const bikeStage = (n, m = 'bike') => {
   const list = MACHINES[m].stages;
   return list[Math.min(list.length, Math.max(1, n)) - 1];
 };
 
-export function bikeSegments(n, m = 'bike') {
+// setup = you still need a steady value. A stage with no steady part then gets
+// 5 steady minutes after the warm-up to find it.
+export function bikeSegments(n, m = 'bike', { setup = false } = {}) {
   const { clips } = MACHINES[m];
   const segs = [{ type: 'warmup', zone: E, clip: clips.warm, sec: WARM_MIN * 60 }];
+  if (setup && !bikeStage(n, m).main.some(([z]) => z === S)) segs.push({ type: S, zone: S, clip: S, sec: SETUP_MIN * 60 });
   for (const [zone, min] of bikeStage(n, m).main) segs.push({ type: zone, zone, clip: zone === E ? clips.easy : zone, sec: min * 60 });
   segs.push({ type: 'cooldown', zone: E, clip: clips.cool, sec: COOL_MIN * 60 });
   return segs;
@@ -161,7 +173,8 @@ export function bikeKcal(secByType, power, weight, units, m = 'bike') {
   for (const [type, sec] of Object.entries(secByType)) {
     const zone = zoneOf(type);
     if (!zones[zone] || !sec) continue;
-    const w = zoneWatts(zone, power);
+    // The watts formula is for bikes (ACSM leg cycling); the elliptical uses effort rates.
+    const w = m === 'bike' ? zoneWatts(zone, power) : null;
     const perMin = w ? (1.8 * w * 6.12 + 7 * kg) * 5 / 1000 : zones[zone].met * kg * 3.5 * 5 / 1000;
     kcal += perMin * sec / 60;
   }
