@@ -229,6 +229,24 @@ export function setupNext(ex, w, rir, units) {
   return w;
 }
 
+// Within a session: what to try on the next set, from the reps and reps left
+// on the one you just did. The aim is to stay in the rep range with 1–3 left.
+// Adjusting by reps left matches fixed plans for strength (Hickmott et al. 2022).
+export function nextSet(ex, set, st, units) {
+  const e = EX[ex];
+  if (e.kind === 'carry' || e.kind === 'reps' || set.rir == null || set.w == null) return null;
+  const [lo, hi] = e.reps;
+  const inc = incOf(ex, units), dir = e.dir || 1;
+  const step = d => (e.kind === 'level' ? Math.max(0, set.w + d * dir) : roundTo(set.w + inc * d * dir, inc));
+  const backOk = st.backColor === 'green' || (st.backColor === 'amber' && e.back !== 'load');
+  const shoulderOk = !e.press || st.shoulders === 'fine';
+  if (set.rir >= 4 || (set.reps >= hi && set.rir >= 2)) {
+    return backOk && shoulderOk ? { w: step(1), why: set.rir >= 4 ? 'left4' : 'top' } : { w: set.w, why: 'held' };
+  }
+  if (set.rir === 0) return { w: step(-1), why: set.reps < lo ? 'low' : 'empty' };
+  return { w: set.w, why: 'same' };
+}
+
 // ---- weak spots -------------------------------------------------------------
 
 // Pulling vs pushing on matching machines. A rule of thumb from shoulder

@@ -17,7 +17,7 @@ const { figure } = await import('./drawings.js').catch(() => ({ figure: () => ''
 
 // Shown in Settings, so you can tell which version your phone is running.
 // Keep in step with VERSION in sw.js.
-const APP_VERSION = '15 · Nov 5';
+const APP_VERSION = '16 · Nov 5';
 
 // ?fast=60 runs workouts 60× faster, for testing.
 const TIME_SCALE = Math.min(120, Math.max(1, Number(new URLSearchParams(location.search).get('fast')) || 1));
@@ -1583,7 +1583,22 @@ function jumpHTML() {
 }
 
 // What you did last time and what to do today, right under the exercise name.
-function coachHTML(ex, b, tgt) {
+const TIP_WHY = {
+  left4: 'You had 4 or more left, so up a step.',
+  top: 'Top of the range with reps to spare, so up a step.',
+  same: 'Right where you want to be: same weight.',
+  empty: 'Nothing left in the tank, so down a step to stay at 1–3 left.',
+  low: 'You ran out below the range, so down a step.',
+};
+
+// After a set: what to try on this one, and why.
+function tipHTML(ex, tip, held) {
+  const s = tip.from;
+  const why = tip.why === 'held' ? `Same weight: no increases while your ${held} ${held === 'shoulders' ? 'are' : 'is'} flagged.` : TIP_WHY[tip.why];
+  return `<small class="coach-why">Set ${s.r + 1}: ${esc(fmtSet(ex, s))}. ${esc(why)}</small>`;
+}
+
+function coachHTML(ex, b, tgt, tipTgt) {
   const t = ls.targets[ex] || {};
   const e = EX[ex];
   const today = ls.sets.filter(s => s.ex === ex).map(s => fmtSet(ex, s));
@@ -1597,12 +1612,17 @@ function coachHTML(ex, b, tgt) {
     held: `Held there for your ${held}.`,
     same: 'Same weight. Try for one more rep.',
   }[t.change] || '';
+  // After the first set, only the matching set from last time, so Done stays on screen.
+  const i = t.last ? Math.min(ls.ptr.r, t.last.length - 1) : 0;
+  const lastSets = t.last ? (today.length ? [t.last[i]] : t.last) : null;
   return `<div class="coach">
-    <div class="coach-row"><span class="coach-k">Last time${t.lastAt ? ` · ${fmtDay(t.lastAt)}` : ''}</span>
-      <p class="coach-sets">${t.last ? t.last.map(s => esc(fmtSet(ex, s))).join('<br>') : 'Nothing yet. This is your first time.'}</p></div>
-    <div class="coach-row now"><span class="coach-k">Today I’d do</span>
-      <p class="ex-target">${tgt}</p>${why ? `<small class="coach-why">${esc(why)}</small>` : ''}</div>
-    ${today.length ? `<div class="coach-row"><span class="coach-k">Done so far</span><p class="coach-sets">${today.map(esc).join('<br>')}</p></div>` : ''}
+    <div class="coach-row"><span class="coach-k">Last time${today.length && t.last ? `, set ${i + 1}` : ''}${t.lastAt ? ` · ${fmtDay(t.lastAt)}` : ''}</span>
+      <p class="coach-sets">${lastSets ? lastSets.map(s => esc(fmtSet(ex, s))).join('<br>') : 'Nothing yet. This is your first time.'}</p></div>
+    ${tipTgt ? `<div class="coach-row now"><span class="coach-k">Try this set</span>
+      <p class="ex-target">${tipTgt}</p>${tipHTML(ex, ls.tips[ex], held)}</div>`
+      : `<div class="coach-row now"><span class="coach-k">Today I’d do</span>
+      <p class="ex-target">${tgt}</p>${why ? `<small class="coach-why">${esc(why)}</small>` : ''}</div>`}
+    ${today.length ? `<div class="coach-row"><span class="coach-k">Done so far</span><p class="coach-sets">${today.map(esc).join(', ')}</p></div>` : ''}
   </div>`;
 }
 
@@ -1621,6 +1641,9 @@ function liftHTML() {
     const arrow = { up: ' <span class="up">↑</span>', best: ' <span class="up">↑</span>', down: ' <span class="dn">↓</span>' }[t.change] || '';
     tgt = `<b>${fmtW(ex, t.w)}${e.dir === -1 && !isLevel(ex) ? ' of help' : ''}</b>${arrow} × <b>${range}</b>${extraTrip}`;
   }
+  const tip = doneOf(ex) ? ls.tips?.[ex] : null;
+  const tipArrow = tip ? { left4: ' <span class="up">↑</span>', top: ' <span class="up">↑</span>', empty: ' <span class="dn">↓</span>', low: ' <span class="dn">↓</span>' }[tip.why] || '' : '';
+  const tipTgt = tip ? `<b>${fmtW(ex, tip.w)}${e.dir === -1 && !isLevel(ex) ? ' of help' : ''}</b>${tipArrow} × <b>${range}</b>` : '';
   const note = state.lift.notes[ex];
   const effort = e.kind === 'carry' ? '' : ls.early ? 'Leave about 3 reps in the tank.' : 'Leave 1–3 reps in the tank.';
   const extra = ls.ptr.r >= b.sets;
@@ -1631,7 +1654,7 @@ function liftHTML() {
       <div class="ex-head"><h1>${esc(e.name)}</h1>${e.alts?.length || EX[item.orig]?.alts?.length ? '<button class="btn small" data-act="ls-swap">Swap</button>' : ''}</div>
       <div class="setbar">${extra ? '<b>Extra set</b>' : `<b>Set ${ls.ptr.r + 1}</b><span>of ${b.sets}</span>`}<span class="dots">${[...Array(b.sets)].map((_, i) => `<i class="${i < ls.ptr.r ? 'on' : i === ls.ptr.r ? 'cur' : ''}"></i>`).join('')}</span></div>
       ${b.same && ls.ptr.r === 0 ? `<p class="ex-same">${esc(b.same)}</p>` : ''}
-      ${coachHTML(ex, b, tgt)}
+      ${coachHTML(ex, b, tgt, tipTgt)}
       ${note ? `<p class="ex-note"><b>Your notes:</b> ${esc(note)}</p>` : ''}
       <div class="ex-in">
         ${e.kind !== 'reps' ? stepperHTML('w', isLevel(ex) ? 'Bar notch' : e.dir === -1 ? 'Assist' : 'Weight', ls.cur.w, isLevel(ex) ? 'lower = harder' : wUnit()) : ''}
@@ -1703,7 +1726,7 @@ function restHTML() {
       <div class="rest-clock" id="restClock">${fmtClock(restLeft())}</div>
       <p class="rest-next">${!started
         ? `Next exercise: <b>${esc(exName(item.ex))}</b> · ${b.sets} sets${b.same ? `<br>${esc(b.same)}` : ''}`
-        : `Next: <b>${esc(exName(item.ex))}</b> · set ${ls.ptr.r + 1} of ${b.sets}`}</p>
+        : `Next: <b>${esc(exName(item.ex))}</b> · set ${ls.ptr.r + 1} of ${b.sets}${ls.tips?.[item.ex] ? `<br>Try <b>${fmtW(item.ex, ls.tips[item.ex].w)}${EX[item.ex].dir === -1 && !isLevel(item.ex) ? ' of help' : ''}</b>` : ''}`}</p>
       <div class="row"><button class="btn" data-act="rest-add">+15 s</button><button class="btn primary" data-act="rest-skip">Skip rest</button></div>
     </div>
   </div>`;
@@ -2715,6 +2738,11 @@ const actions = {
     ls.sets.push(set);
     ls.next[ex] = { w, reps };
     audio.vibrate([60]);
+    const tip = ls.targets[ex]?.setup ? null : Lift.nextSet(ex, set, ls.st, units());
+    if (tip) {
+      ls.next[ex] = { w: tip.w, reps };
+      (ls.tips ||= {})[ex] = { ...tip, from: set };
+    }
     if (ls.targets[ex]?.setup && e.kind !== 'carry') {
       if (!ls.setupList.includes(ex)) ls.setupList.push(ex);
       if (w !== null) {
